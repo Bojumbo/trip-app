@@ -2,8 +2,8 @@ const CACHE_NAME = 'trip-tracker-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/style.css',
-  '/app.js',
+  '/style.css?v=3',
+  '/app.js?v=3',
   '/manifest.json',
   '/icon.svg',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js'
