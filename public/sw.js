@@ -1,17 +1,20 @@
-const CACHE_NAME = 'trip-tracker-v1';
+const CACHE_NAME = 'trip-tracker-v2';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/manifest.json',
-  '/icon.svg'
+  '/icon.svg',
+  'https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
+      return cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.warn('Не вдалося закешувати частину ресурсів при інсталяції:', err);
+      });
     })
   );
   self.skipWaiting();
@@ -31,7 +34,7 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // Не кешуємо API запити у Service Worker (для API записів використовується IndexedDB / LocalStorage черга)
+  // Не кешуємо API запити у Service Worker (для API використовується LocalStorage черга)
   if (url.pathname.startsWith('/api/')) {
     return;
   }
@@ -39,7 +42,6 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
-        // Оновлюємо кеш у фоні (Stale-While-Revalidate)
         fetch(event.request).then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
@@ -48,8 +50,13 @@ self.addEventListener('fetch', (event) => {
         return cachedResponse;
       }
 
-      return fetch(event.request).catch(() => {
-        // Якщо офлайн і запит навігації - віддаємо головну сторінку
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && (url.origin === location.origin || url.hostname.includes('cdn.jsdelivr.net'))) {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return networkResponse;
+      }).catch(() => {
         if (event.request.mode === 'navigate') {
           return caches.match('/');
         }

@@ -12,6 +12,7 @@
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
   <link rel="manifest" href="/manifest.json">
   <link rel="stylesheet" href="/style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -42,6 +43,7 @@
           <button class="tab-btn active" id="tabFormBtn" onclick="switchTab('form')">✍️ Форма</button>
           <button class="tab-btn" id="tabReportBtn" onclick="switchTab('report')">📊 Звіт<span class="hide-mobile"> змін</span></button>
           <button class="tab-btn" id="tabTableBtn" onclick="switchTab('table')">📑 Таблиця</button>
+          <button class="tab-btn" id="tabAnalyticsBtn" onclick="switchTab('analytics')">📈 Графіки</button>
         </div>
         <div class="header-actions">
           <button class="header-icon-btn" onclick="syncOfflineQueue()" title="Офлайн-черга" id="offlineSyncBtn">
@@ -214,6 +216,115 @@
             <button class="btn btn-secondary" onclick="loadMoreRecords(100)">+ 100</button>
           </div>
         </div>
+      </div>
+
+      <!-- ВКЛАДКА 4: АНАЛІТИКА ТА ГРАФІКИ -->
+      <div id="tabAnalytics" style="display: none;">
+        
+        <!-- Панель вибору періоду -->
+        <div class="analytics-header">
+          <div class="period-pills">
+            <button class="pill-btn" onclick="setAnalyticsPeriod('7d', this)">7 днів</button>
+            <button class="pill-btn active" onclick="setAnalyticsPeriod('30d', this)">30 днів</button>
+            <button class="pill-btn" onclick="setAnalyticsPeriod('month', this)">Цей місяць</button>
+            <button class="pill-btn" onclick="setAnalyticsPeriod('all', this)">Весь час</button>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <input type="date" id="analyticsDateFrom" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" onchange="applyCustomAnalyticsDates()">
+            <span style="font-size: 0.82rem; color: var(--text-muted);">-</span>
+            <input type="date" id="analyticsDateTo" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" onchange="applyCustomAnalyticsDates()">
+            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" onclick="loadAnalytics()" title="Оновити графіки">🔄</button>
+          </div>
+        </div>
+
+        <!-- KPI Метрики -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Загальний пробіг</span>
+              <span class="kpi-icon">🛣️</span>
+            </div>
+            <div class="kpi-value" id="kpiMileage">0 км</div>
+            <div class="kpi-sub" id="kpiMileageSub">за обраний період</div>
+          </div>
+
+          <div class="kpi-card success">
+            <div class="kpi-header">
+              <span class="kpi-label">Робочих змін</span>
+              <span class="kpi-icon">⏱️</span>
+            </div>
+            <div class="kpi-value" id="kpiShifts">0</div>
+            <div class="kpi-sub" id="kpiShiftsSub">0 закритих змін</div>
+          </div>
+
+          <div class="kpi-card warning">
+            <div class="kpi-header">
+              <span class="kpi-label">Вантажні операції</span>
+              <span class="kpi-icon">📦</span>
+            </div>
+            <div class="kpi-value" id="kpiCargo">0</div>
+            <div class="kpi-sub" id="kpiCargoSub">0 заг / 0 виг</div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-label">Здано звітів</span>
+              <span class="kpi-icon">📋</span>
+            </div>
+            <div class="kpi-value" id="kpiReportRate">0%</div>
+            <div class="kpi-sub" id="kpiReportRateSub">0 із 0 записів</div>
+          </div>
+        </div>
+
+        <!-- Сітка Графіків -->
+        <div class="chart-grid">
+          
+          <!-- Графік 1: Пробіг по днях -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <span class="chart-title">📈 Пробіг за днями (км)</span>
+              <span style="font-size: 0.78rem; color: var(--text-muted);" id="mileageChartSubtitle">км/день</span>
+            </div>
+            <div class="chart-container">
+              <canvas id="chartMileage"></canvas>
+            </div>
+          </div>
+
+          <!-- Графік 2: Розподіл дій -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <span class="chart-title">🥧 Структура дій</span>
+              <span style="font-size: 0.78rem; color: var(--text-muted);">кількість подій</span>
+            </div>
+            <div class="chart-container">
+              <canvas id="chartActions"></canvas>
+            </div>
+          </div>
+
+          <!-- Графік 3: Тривалість робочих змін -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <span class="chart-title">⏳ Тривалість змін (години)</span>
+              <span style="font-size: 0.78rem; color: var(--text-muted);" id="shiftsAvgSubtitle">середнє: 0 год</span>
+            </div>
+            <div class="chart-container">
+              <canvas id="chartShiftsDuration"></canvas>
+            </div>
+          </div>
+
+          <!-- Графік 4: Топ локацій -->
+          <div class="chart-card">
+            <div class="chart-card-header">
+              <span class="chart-title">📍 Топ локацій / зупинок</span>
+              <span style="font-size: 0.78rem; color: var(--text-muted);">найчастіші пункти</span>
+            </div>
+            <div class="chart-container">
+              <canvas id="chartLocations"></canvas>
+            </div>
+          </div>
+
+        </div>
+
       </div>
 
     </div>

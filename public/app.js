@@ -8,6 +8,11 @@ let actionsList = [];
 const recordsCache = new Map();
 let searchDebounceTimeout = null;
 let isSyncingOffline = false;
+let chartMileageInstance = null;
+let chartActionsInstance = null;
+let chartShiftsDurationInstance = null;
+let chartLocationsInstance = null;
+let analyticsCurrentPeriod = '30d';
 
 // Register Service Worker
 if ('serviceWorker' in navigator) {
@@ -72,6 +77,9 @@ function setTheme(t) {
   if (btn) btn.innerText = t === 'dark' ? '☀️' : '🌙';
   const meta = document.getElementById('themeMeta');
   if (meta) meta.setAttribute('content', t === 'dark' ? '#1e293b' : '#2563eb');
+  if (document.getElementById('tabAnalytics') && document.getElementById('tabAnalytics').style.display !== 'none') {
+    loadAnalytics();
+  }
 }
 
 // Authentication
@@ -247,7 +255,7 @@ function checkOdometerInput() {
 
 // Tabs switching
 function switchTab(t) {
-  ['form', 'report', 'table'].forEach(x => {
+  ['form', 'report', 'table', 'analytics'].forEach(x => {
     const tabEl = document.getElementById(`tab${capitalize(x)}`);
     const tabBtn = document.getElementById(`tab${capitalize(x)}Btn`);
     if (tabEl) tabEl.style.display = (x === t ? 'block' : 'none');
@@ -256,6 +264,13 @@ function switchTab(t) {
   if (t === 'form') loadLastOdometer();
   if (t === 'report') loadShiftsReport();
   if (t === 'table') reloadTable(true);
+  if (t === 'analytics') {
+    if (!document.getElementById('analyticsDateFrom')?.value && !document.getElementById('analyticsDateTo')?.value) {
+      setAnalyticsPeriod('30d');
+    } else {
+      loadAnalytics();
+    }
+  }
 }
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
@@ -959,6 +974,396 @@ async function exportToCSV() {
     URL.revokeObjectURL(url);
   } catch (e) {
     alert('Помилка експорту даних: ' + e.message);
+  }
+}
+
+// ==========================================
+// АНАЛІТИКА ТА ГРАФІЧНИЙ ДАШБОРД (Chart.js)
+// ==========================================
+
+function setAnalyticsPeriod(period, btnElement) {
+  analyticsCurrentPeriod = period;
+  const pills = document.querySelectorAll('.period-pills .pill-btn');
+  pills.forEach(p => p.classList.remove('active'));
+  if (btnElement) {
+    btnElement.classList.add('active');
+  } else {
+    const defaultBtn = document.querySelector(`.period-pills button[onclick*="'${period}'"]`);
+    if (defaultBtn) defaultBtn.classList.add('active');
+  }
+
+  const now = new Date();
+  const dateToInp = document.getElementById('analyticsDateTo');
+  const dateFromInp = document.getElementById('analyticsDateFrom');
+
+  function formatDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  if (period === '7d') {
+    const from = new Date(now);
+    from.setDate(now.getDate() - 7);
+    if (dateFromInp) dateFromInp.value = formatDate(from);
+    if (dateToInp) dateToInp.value = formatDate(now);
+  } else if (period === '30d') {
+    const from = new Date(now);
+    from.setDate(now.getDate() - 30);
+    if (dateFromInp) dateFromInp.value = formatDate(from);
+    if (dateToInp) dateToInp.value = formatDate(now);
+  } else if (period === 'month') {
+    const from = new Date(now.getFullYear(), now.getMonth(), 1);
+    if (dateFromInp) dateFromInp.value = formatDate(from);
+    if (dateToInp) dateToInp.value = formatDate(now);
+  } else if (period === 'all') {
+    if (dateFromInp) dateFromInp.value = '';
+    if (dateToInp) dateToInp.value = '';
+  }
+
+  loadAnalytics();
+}
+
+function applyCustomAnalyticsDates() {
+  const pills = document.querySelectorAll('.period-pills .pill-btn');
+  pills.forEach(p => p.classList.remove('active'));
+  loadAnalytics();
+}
+
+function getChartThemeColors() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  return {
+    isDark,
+    textColor: isDark ? '#94a3b8' : '#64748b',
+    gridColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+    cardBg: isDark ? '#1e293b' : '#ffffff',
+    tooltipBg: isDark ? '#0f172a' : '#1e293b'
+  };
+}
+
+async function loadAnalytics() {
+  if (typeof Chart === 'undefined') {
+    console.warn('Очікування завантаження Chart.js...');
+    return;
+  }
+
+  const dateFrom = document.getElementById('analyticsDateFrom')?.value || '';
+  const dateTo = document.getElementById('analyticsDateTo')?.value || '';
+
+  const params = new URLSearchParams();
+  if (dateFrom) params.set('date_from', dateFrom);
+  if (dateTo) params.set('date_to', dateTo);
+
+  try {
+    const res = await fetch(`/api/records/all?${params.toString()}`, { headers: authHeaders() });
+    if (res.status === 401) return handleLogout();
+    const records = await res.json();
+    renderAnalyticsDashboard(records);
+  } catch (err) {
+    console.error('Помилка завантаження даних для аналітики:', err);
+  }
+}
+
+function renderAnalyticsDashboard(records) {
+  const theme = getChartThemeColors();
+
+  // 1. РОЗРАХУНОК МЕТРИК
+  let totalMileage = 0;
+  const dailyMileageMap = {};
+  const actionsCountMap = {};
+  const locationsCountMap = {};
+  let reportedCount = 0;
+  let cargoLoads = 0;
+  let cargoUnloads = 0;
+
+  // Відсортовані хронологічно записи з одометром
+  const odoRecords = records
+    .filter(r => r.odometer !== null && r.odometer !== '' && !isNaN(r.odometer) && Number(r.odometer) > 0)
+    .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+
+  // Групуємо зміни
+  const shifts = groupIntoShifts(records);
+  let closedShifts = 0;
+  let totalShiftHours = 0;
+  const shiftDurations = [];
+  const shiftLabels = [];
+
+  shifts.forEach(s => {
+    if (s.type === 'shift' && s.open && s.close) {
+      closedShifts++;
+      // Різниця одометра в зміні
+      if (s.open.odometer && s.close.odometer) {
+        const diff = Number(s.close.odometer) - Number(s.open.odometer);
+        if (diff > 0 && diff < 3500) {
+          const d = s.open.date;
+          dailyMileageMap[d] = (dailyMileageMap[d] || 0) + diff;
+          totalMileage += diff;
+        }
+      }
+      // Тривалість зміни в годинах
+      try {
+        const dStart = new Date(`${s.open.date}T${s.open.time}:00`);
+        const dEnd = new Date(`${s.close.date}T${s.close.time}:00`);
+        let diffHrs = (dEnd - dStart) / (1000 * 60 * 60);
+        if (diffHrs < 0) diffHrs += 24; // якщо перехід через північ
+        if (diffHrs > 0 && diffHrs < 48) {
+          totalShiftHours += diffHrs;
+          shiftDurations.push(parseFloat(diffHrs.toFixed(1)));
+          shiftLabels.push(`${s.open.date.slice(5)} (${s.open.time})`);
+        }
+      } catch (e) {}
+    }
+  });
+
+  // Якщо змін не було або водій веде прості записи (без дій відкрив/закрив зміну)
+  if (totalMileage === 0 && odoRecords.length > 1) {
+    for (let i = 1; i < odoRecords.length; i++) {
+      const diff = Number(odoRecords[i].odometer) - Number(odoRecords[i - 1].odometer);
+      if (diff > 0 && diff < 3500) {
+        const d = odoRecords[i].date;
+        dailyMileageMap[d] = (dailyMileageMap[d] || 0) + diff;
+        totalMileage += diff;
+      }
+    }
+  }
+
+  // Обробка кожної події
+  records.forEach(r => {
+    // Звіти
+    if (Number(r.is_reported) === 1) reportedCount++;
+
+    // Дії
+    const act = (r.action || 'Інше').trim();
+    actionsCountMap[act] = (actionsCountMap[act] || 0) + 1;
+
+    const actLower = act.toLowerCase();
+    if (actLower.includes('загруз') || actLower.includes('завантаж')) cargoLoads++;
+    if (actLower.includes('вигруз') || actLower.includes('розвантаж')) cargoUnloads++;
+
+    // Локації
+    if (r.location && r.location.trim()) {
+      const loc = r.location.trim();
+      locationsCountMap[loc] = (locationsCountMap[loc] || 0) + 1;
+    }
+  });
+
+  // 2. ОНОВЛЕННЯ KPI КАРТОК
+  const kpiMilEl = document.getElementById('kpiMileage');
+  if (kpiMilEl) kpiMilEl.innerText = `${totalMileage.toLocaleString('uk-UA')} км`;
+
+  const kpiShiftsEl = document.getElementById('kpiShifts');
+  const kpiShiftsSubEl = document.getElementById('kpiShiftsSub');
+  if (kpiShiftsEl) kpiShiftsEl.innerText = shifts.length;
+  if (kpiShiftsSubEl) kpiShiftsSubEl.innerText = `${closedShifts} закритих змін`;
+
+  const kpiCargoEl = document.getElementById('kpiCargo');
+  const kpiCargoSubEl = document.getElementById('kpiCargoSub');
+  if (kpiCargoEl) kpiCargoEl.innerText = cargoLoads + cargoUnloads;
+  if (kpiCargoSubEl) kpiCargoSubEl.innerText = `${cargoLoads} заг / ${cargoUnloads} виг`;
+
+  const reportRate = records.length > 0 ? Math.round((reportedCount / records.length) * 100) : 0;
+  const kpiRepEl = document.getElementById('kpiReportRate');
+  const kpiRepSubEl = document.getElementById('kpiReportRateSub');
+  if (kpiRepEl) kpiRepEl.innerText = `${reportRate}%`;
+  if (kpiRepSubEl) kpiRepSubEl.innerText = `${reportedCount} із ${records.length} записів`;
+
+  const avgShiftHours = closedShifts > 0 ? (totalShiftHours / closedShifts).toFixed(1) : 0;
+  const avgShiftSub = document.getElementById('shiftsAvgSubtitle');
+  if (avgShiftSub) avgShiftSub.innerText = `середнє: ${avgShiftHours} год`;
+
+  // 3. ПОБУДОВА ГРАФІКІВ
+
+  // ГРАФІК 1: Пробіг за днями (Bar/Line)
+  const sortedDates = Object.keys(dailyMileageMap).sort();
+  const mileageValues = sortedDates.map(d => dailyMileageMap[d]);
+  const formattedDates = sortedDates.map(d => d.slice(5)); // MM-DD
+
+  const ctxMileage = document.getElementById('chartMileage');
+  if (ctxMileage) {
+    if (chartMileageInstance) chartMileageInstance.destroy();
+    chartMileageInstance = new Chart(ctxMileage, {
+      type: 'bar',
+      data: {
+        labels: formattedDates.length > 0 ? formattedDates : ['Немає даних'],
+        datasets: [{
+          label: 'Пробіг (км)',
+          data: mileageValues.length > 0 ? mileageValues : [0],
+          backgroundColor: 'rgba(37, 99, 235, 0.75)',
+          hoverBackgroundColor: 'rgba(37, 99, 235, 1)',
+          borderColor: '#2563eb',
+          borderWidth: 1,
+          borderRadius: 6,
+          maxBarThickness: 36
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: theme.tooltipBg,
+            callbacks: {
+              label: (ctx) => `Пробіг: ${ctx.parsed.y} км`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: theme.textColor, font: { size: 11 } }
+          },
+          y: {
+            grid: { color: theme.gridColor },
+            ticks: { color: theme.textColor, font: { size: 11 }, callback: v => v + ' км' },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
+  // ГРАФІК 2: Розподіл дій (Doughnut)
+  const actionLabels = Object.keys(actionsCountMap);
+  const actionValues = actionLabels.map(k => actionsCountMap[k]);
+  const actionColors = [
+    '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6',
+    '#ef4444', '#06b6d4', '#ec4899', '#64748b'
+  ];
+
+  const ctxActions = document.getElementById('chartActions');
+  if (ctxActions) {
+    if (chartActionsInstance) chartActionsInstance.destroy();
+    chartActionsInstance = new Chart(ctxActions, {
+      type: 'doughnut',
+      data: {
+        labels: actionLabels.length > 0 ? actionLabels : ['Немає записів'],
+        datasets: [{
+          data: actionValues.length > 0 ? actionValues : [1],
+          backgroundColor: actionColors.slice(0, Math.max(actionLabels.length, 1)),
+          borderWidth: 2,
+          borderColor: theme.cardBg
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '62%',
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: { color: theme.textColor, font: { size: 11 }, boxWidth: 14 }
+          },
+          tooltip: {
+            backgroundColor: theme.tooltipBg
+          }
+        }
+      }
+    });
+  }
+
+  // ГРАФІК 3: Тривалість змін (Bar)
+  const ctxDurations = document.getElementById('chartShiftsDuration');
+  if (ctxDurations) {
+    if (chartShiftsDurationInstance) chartShiftsDurationInstance.destroy();
+    const last12Durations = shiftDurations.slice(-12);
+    const last12Labels = shiftLabels.slice(-12);
+
+    chartShiftsDurationInstance = new Chart(ctxDurations, {
+      type: 'bar',
+      data: {
+        labels: last12Labels.length > 0 ? last12Labels : ['Немає закритих змін'],
+        datasets: [{
+          label: 'Тривалість (год)',
+          data: last12Durations.length > 0 ? last12Durations : [0],
+          backgroundColor: 'rgba(16, 185, 129, 0.75)',
+          hoverBackgroundColor: 'rgba(16, 185, 129, 1)',
+          borderColor: '#10b981',
+          borderWidth: 1,
+          borderRadius: 6,
+          maxBarThickness: 32
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: theme.tooltipBg,
+            callbacks: {
+              label: (ctx) => `Тривалість: ${ctx.parsed.y} год`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: theme.textColor, font: { size: 10 } }
+          },
+          y: {
+            grid: { color: theme.gridColor },
+            ticks: { color: theme.textColor, font: { size: 11 }, callback: v => v + ' год' },
+            beginAtZero: true
+          }
+        }
+      }
+    });
+  }
+
+  // ГРАФІК 4: Топ локацій (Horizontal Bar)
+  const sortedLocations = Object.entries(locationsCountMap)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6);
+
+  const locLabels = sortedLocations.map(e => e[0]);
+  const locValues = sortedLocations.map(e => e[1]);
+
+  const ctxLoc = document.getElementById('chartLocations');
+  if (ctxLoc) {
+    if (chartLocationsInstance) chartLocationsInstance.destroy();
+    chartLocationsInstance = new Chart(ctxLoc, {
+      type: 'bar',
+      data: {
+        labels: locLabels.length > 0 ? locLabels : ['Немає збережених локацій'],
+        datasets: [{
+          label: 'Візитів',
+          data: locValues.length > 0 ? locValues : [0],
+          backgroundColor: 'rgba(139, 92, 246, 0.75)',
+          hoverBackgroundColor: 'rgba(139, 92, 246, 1)',
+          borderColor: '#8b5cf6',
+          borderWidth: 1,
+          borderRadius: 6,
+          maxBarThickness: 24
+        }]
+      },
+      options: {
+        indexAxis: 'y',
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: theme.tooltipBg,
+            callbacks: {
+              label: (ctx) => `Кількість подій: ${ctx.parsed.x}`
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { color: theme.gridColor },
+            ticks: { color: theme.textColor, font: { size: 11 }, precision: 0 },
+            beginAtZero: true
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: theme.textColor, font: { size: 11 } }
+          }
+        }
+      }
+    });
   }
 }
 
