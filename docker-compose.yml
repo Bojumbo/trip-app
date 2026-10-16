@@ -6,10 +6,10 @@ services:
     container_name: trip-tracker
     restart: unless-stopped
     ports:
-      - "8851:3000"
+      - "${HOST_PORT:-8851}:${PORT:-8851}"
     environment:
       - NODE_ENV=production
-      - PORT=${PORT:-3000}
+      - PORT=${PORT:-8851}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Будь ласка, вкажіть ADMIN_PASSWORD у файлі .env}
       - JWT_SECRET=${JWT_SECRET:?Будь ласка, вкажіть JWT_SECRET у файлі .env}
     volumes:

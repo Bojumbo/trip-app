@@ -18,7 +18,7 @@ COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh \
     && mkdir -p /app/data
 
-EXPOSE 3000
+EXPOSE 8851 3000
 
 VOLUME ["/app/data"]
 
