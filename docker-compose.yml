@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  trip-tracker:
+    build: .
+    container_name: trip-tracker
+    restart: always
+    ports:
+      - "8851:3000"
+    environment:
+      - PORT=3000
+      - ADMIN_PASSWORD=2856023b   # <--- Встановіть свій пароль для входу!
+      - JWT_SECRET=change_me_to_random_secret_string
+    volumes:
+      - ./data:/app/data
