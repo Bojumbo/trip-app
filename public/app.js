@@ -146,6 +146,8 @@ function initApp() {
   loadLastOdometer();
   updateOfflineQueueBadge();
   syncOfflineQueue();
+  loadActiveTripBanner();
+  populateTripSelectors();
 }
 
 function setNowDateTime() {
@@ -261,8 +263,8 @@ function switchTab(t) {
     if (tabEl) tabEl.style.display = (x === t ? 'block' : 'none');
     if (tabBtn) tabBtn.classList.toggle('active', x === t);
   });
-  if (t === 'form') loadLastOdometer();
-  if (t === 'report') loadShiftsReport();
+  if (t === 'form') { loadLastOdometer(); loadActiveTripBanner(); }
+  if (t === 'report') loadTripsReport();
   if (t === 'table') reloadTable(true);
   if (t === 'analytics') {
     if (!document.getElementById('analyticsDateFrom')?.value && !document.getElementById('analyticsDateTo')?.value) {
@@ -401,7 +403,9 @@ document.getElementById('tripForm').addEventListener('submit', async (e) => {
     location: document.getElementById('location').value,
     comment: document.getElementById('comment').value,
     coords: userCoords || document.getElementById('coords').value || '',
-    is_reported: document.getElementById('formIsReported').checked ? 1 : 0
+    is_reported: document.getElementById('formIsReported').checked ? 1 : 0,
+    cargo: document.getElementById('cargoInput')?.value.trim() || '',
+    delivery_id: document.getElementById('unloadDeliverySelect')?.value || null
   };
 
   function resetFormAfterSave() {
@@ -410,6 +414,13 @@ document.getElementById('tripForm').addEventListener('submit', async (e) => {
     updateFormReportUI(false);
     setNowDateTime();
     fetchGPS();
+    // Reset delivery dynamic fields
+    const cargoInp = document.getElementById('cargoInput');
+    const cargoWrap = document.getElementById('cargoFieldWrap');
+    const unloadWrap = document.getElementById('unloadDeliveryFieldWrap');
+    if (cargoInp) cargoInp.value = '';
+    if (cargoWrap) cargoWrap.style.display = 'none';
+    if (unloadWrap) unloadWrap.style.display = 'none';
   }
 
   // Якщо пристрій офлайн — відразу зберігаємо в чергу
@@ -456,12 +467,14 @@ function getFilterParams() {
   const dateFrom = document.getElementById('filterDateFrom')?.value || '';
   const dateTo = document.getElementById('filterDateTo')?.value || '';
   const isReported = document.getElementById('filterReportStatus')?.value || '';
+  const tripId = document.getElementById('filterTrip')?.value || '';
 
   const params = new URLSearchParams();
   if (search) params.set('search', search);
   if (dateFrom) params.set('date_from', dateFrom);
   if (dateTo) params.set('date_to', dateTo);
   if (isReported !== '') params.set('is_reported', isReported);
+  if (tripId) params.set('trip_id', tripId);
   return params;
 }
 
@@ -608,7 +621,11 @@ async function bulkSetReportStatus(ids, newStatus) {
         const r = recordsCache.get(id);
         if (r) r.is_reported = newStatus;
       });
-      loadShiftsReport();
+      // Оновити звіт рейсів, якщо вкладка звіту активна
+      const reportTab = document.getElementById('tabReport');
+      if (reportTab && reportTab.style.display !== 'none') {
+        loadTripsReport();
+      }
     } else {
       alert('Помилка масового оновлення: ' + data.error);
     }
@@ -978,6 +995,532 @@ async function exportToCSV() {
 }
 
 // ==========================================
+// КЕРУВАННЯ РЕЙСАМИ — UI
+// ==========================================
+
+// Завантаження активного рейсу і відображення банера
+async function loadActiveTripBanner() {
+  const container = document.getElementById('activeTripContainer');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/trips/active', { headers: authHeaders() });
+    if (res.status === 401) return handleLogout();
+    const { activeTrip, activeDeliveries } = await res.json();
+
+    if (!activeTrip) {
+      container.innerHTML = '';
+      return;
+    }
+
+    const delCount = activeDeliveries.length;
+    const delText = delCount > 0
+      ? `<span style="font-size:0.8rem; color:var(--warning);">▲ ${delCount} відкрит${delCount === 1 ? 'а' : 'их'} доставк${delCount === 1 ? 'а' : 'и'}</span>`
+      : '<span style="font-size:0.8rem; color:var(--text-muted);">Немає активних доставок</span>';
+
+    container.innerHTML = `
+      <div class="active-trip-banner">
+        <div class="active-trip-info">
+          <span class="active-trip-label">🚛 Активний рейс:</span>
+          <span class="active-trip-name">${escapeHtml(activeTrip.name)}</span>
+          <span style="font-size:0.78rem; color:var(--text-muted);">з ${escapeHtml(activeTrip.start_date)} ${escapeHtml(activeTrip.start_time)}</span>
+          ${delText}
+        </div>
+        <button class="btn btn-secondary" style="padding:5px 10px; font-size:0.8rem; flex-shrink:0;" onclick="openCompleteTripModal(${activeTrip.id}, '${escapeHtml(activeTrip.name).replace(/'/g, "\\'")}')">🏁 Завершити</button>
+      </div>
+    `;
+  } catch (e) {
+    console.warn('Помилка завантаження активного рейсу');
+  }
+}
+
+// Заповнення селекторів рейсів (фільтри таблиці, аналітика, звіт)
+async function populateTripSelectors() {
+  try {
+    const res = await fetch('/api/trips', { headers: authHeaders() });
+    if (!res.ok) return;
+    const trips = await res.json();
+
+    const selectors = [
+      document.getElementById('filterTrip'),
+      document.getElementById('analyticsTripSelect'),
+      document.getElementById('reportTripSelect')
+    ];
+
+    selectors.forEach(sel => {
+      if (!sel) return;
+      // Зберігаємо поточне значення
+      const current = sel.value;
+      sel.innerHTML = '<option value="">Всі рейси</option>';
+      trips.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.text = `#${t.id} ${t.name}${t.status === 'active' ? ' 🟢' : ''}`;
+        sel.appendChild(opt);
+      });
+      // Відновлюємо попереднє значення якщо воно ще існує
+      if (current && sel.querySelector(`option[value="${current}"]`)) {
+        sel.value = current;
+      }
+    });
+  } catch (e) {
+    console.warn('Помилка завантаження списку рейсів');
+  }
+}
+
+// Дія 'onActionChanged' — показ/приховання полів вантажу і доставки
+async function onActionChanged() {
+  const action = (document.getElementById('action')?.value || '').toLowerCase();
+  const cargoWrap = document.getElementById('cargoFieldWrap');
+  const unloadWrap = document.getElementById('unloadDeliveryFieldWrap');
+
+  const isLoad = action.includes('загруз') || action.includes('завантаж');
+  const isUnload = action.includes('вигруз') || action.includes('розвантаж');
+
+  if (cargoWrap) cargoWrap.style.display = isLoad ? 'block' : 'none';
+  if (unloadWrap) {
+    if (isUnload) {
+      unloadWrap.style.display = 'block';
+      await loadOpenDeliveries();
+    } else {
+      unloadWrap.style.display = 'none';
+    }
+  }
+}
+
+async function loadOpenDeliveries() {
+  const sel = document.getElementById('unloadDeliverySelect');
+  if (!sel) return;
+  try {
+    const res = await fetch('/api/trips/active', { headers: authHeaders() });
+    const { activeDeliveries } = await res.json();
+    sel.innerHTML = '<option value="">Автовизначення (перша відкрита)</option>';
+    (activeDeliveries || []).forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.id;
+      opt.text = `#${d.id} ${d.cargo || 'Вантаж'} (з ${d.load_location || '?'}, ${d.load_date || ''})`;
+      sel.appendChild(opt);
+    });
+  } catch (e) {}
+}
+
+// ==========================================
+// РЕЙСИ — МОДАЛЬНІ ВІКНА
+// ==========================================
+
+function openNewTripModal() {
+  const now = new Date();
+  const fmt = (n) => String(n).padStart(2, '0');
+  const todayDate = `${now.getFullYear()}-${fmt(now.getMonth() + 1)}-${fmt(now.getDate())}`;
+  const todayTime = `${fmt(now.getHours())}:${fmt(now.getMinutes())}`;
+
+  const nd = document.getElementById('newTripDate');
+  const nt = document.getElementById('newTripTime');
+  const nm = document.getElementById('newTripName');
+  const no = document.getElementById('newTripOdometer');
+  const nn = document.getElementById('newTripNotes');
+
+  if (nd) nd.value = todayDate;
+  if (nt) nt.value = todayTime;
+  if (nm) nm.value = '';
+  if (no) no.value = '';
+  if (nn) nn.value = '';
+
+  // Підтягнути поточний одометр як рекомендацію
+  const hint = document.getElementById('lastOdoHint');
+  if (hint && hint.innerText && no) {
+    const match = hint.innerText.match(/(\d+)/);
+    if (match) no.placeholder = `Попередній: ${match[1]} км`;
+  }
+
+  document.getElementById('newTripModal').style.display = 'flex';
+  if (nm) nm.focus();
+}
+
+function closeNewTripModal() {
+  document.getElementById('newTripModal').style.display = 'none';
+}
+
+async function submitNewTrip() {
+  const btn = document.getElementById('newTripSubmitBtn');
+  const name = document.getElementById('newTripName')?.value.trim();
+  if (!name) return;
+
+  btn.disabled = true;
+  btn.innerText = 'Збереження...';
+
+  try {
+    const res = await fetch('/api/trips', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        name,
+        start_date: document.getElementById('newTripDate')?.value,
+        start_time: document.getElementById('newTripTime')?.value,
+        start_odometer: document.getElementById('newTripOdometer')?.value || null,
+        notes: document.getElementById('newTripNotes')?.value || ''
+      })
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    btn.innerText = 'Почати рейс';
+
+    if (data.success || data.id) {
+      closeNewTripModal();
+      showToast('🚀 Новий рейс відкрито!', 'success');
+      await loadActiveTripBanner();
+      await populateTripSelectors();
+      loadTripsReport();
+    } else {
+      showToast('Помилка: ' + (data.error || 'Не вдалося відкрити рейс'), 'error', 4000);
+    }
+  } catch (e) {
+    btn.disabled = false;
+    btn.innerText = 'Почати рейс';
+    showToast('Помилка підключення до сервера', 'error');
+  }
+}
+
+function openCompleteTripModal(tripId, tripName) {
+  const now = new Date();
+  const fmt = (n) => String(n).padStart(2, '0');
+  const todayDate = `${now.getFullYear()}-${fmt(now.getMonth() + 1)}-${fmt(now.getDate())}`;
+  const todayTime = `${fmt(now.getHours())}:${fmt(now.getMinutes())}`;
+
+  const idEl = document.getElementById('completeTripId');
+  const pEl = document.getElementById('completeTripPrompt');
+  const cd = document.getElementById('completeTripDate');
+  const ct = document.getElementById('completeTripTime');
+  const co = document.getElementById('completeTripOdometer');
+  const cn = document.getElementById('completeTripNotes');
+
+  if (idEl) idEl.value = tripId;
+  if (pEl) pEl.innerText = `Завершити рейс: "${tripName}"?`;
+  if (cd) cd.value = todayDate;
+  if (ct) ct.value = todayTime;
+  if (co) co.value = '';
+  if (cn) cn.value = '';
+
+  // Підтягнути поточний одометр
+  const hint = document.getElementById('lastOdoHint');
+  if (hint && hint.innerText && co) {
+    const match = hint.innerText.match(/(\d+)/);
+    if (match) co.placeholder = `Попередній: ${match[1]} км`;
+  }
+
+  document.getElementById('completeTripModal').style.display = 'flex';
+}
+
+function closeCompleteTripModal() {
+  document.getElementById('completeTripModal').style.display = 'none';
+}
+
+async function submitCompleteTrip() {
+  const btn = document.getElementById('completeTripSubmitBtn');
+  const id = document.getElementById('completeTripId')?.value;
+  if (!id) return;
+
+  btn.disabled = true;
+  btn.innerText = 'Завершення...';
+
+  try {
+    const res = await fetch(`/api/trips/${id}/complete`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        end_date: document.getElementById('completeTripDate')?.value,
+        end_time: document.getElementById('completeTripTime')?.value,
+        end_odometer: document.getElementById('completeTripOdometer')?.value || null,
+        notes: document.getElementById('completeTripNotes')?.value || ''
+      })
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    btn.innerText = 'Завершити рейс';
+
+    if (data.success) {
+      closeCompleteTripModal();
+      showToast('🏁 Рейс успішно завершено!', 'success');
+      await loadActiveTripBanner();
+      await populateTripSelectors();
+      loadTripsReport();
+    } else {
+      showToast('Помилка: ' + (data.error || 'Не вдалося завершити рейс'), 'error', 4000);
+    }
+  } catch (e) {
+    btn.disabled = false;
+    btn.innerText = 'Завершити рейс';
+    showToast('Помилка підключення до сервера', 'error');
+  }
+}
+
+// ==========================================
+// ІЄРАРХІЧНИЙ ЗВІТ: РЕЙСИ → ДОСТАВКИ → ЗМІНИ
+// ==========================================
+
+async function loadTripsReport() {
+  const container = document.getElementById('tripsReportContainer');
+  if (!container) return;
+  container.innerHTML = '<div style="text-align:center; padding:40px; color:var(--text-muted);">Завантаження рейсів...</div>';
+
+  try {
+    const filterTripId = document.getElementById('reportTripSelect')?.value || '';
+
+    // Завантажуємо список рейсів (або конкретний)
+    let tripsRes;
+    if (filterTripId) {
+      // Деталі одного рейсу
+      tripsRes = await fetch(`/api/trips/${filterTripId}/details`, { headers: authHeaders() });
+      if (tripsRes.status === 401) return handleLogout();
+      const detail = await tripsRes.json();
+      if (detail.error) throw new Error(detail.error);
+      renderTripsReport([{ ...detail.trip, deliveries: detail.deliveries, allRecords: detail.records }]);
+    } else {
+      // Усі рейси
+      tripsRes = await fetch('/api/trips', { headers: authHeaders() });
+      if (tripsRes.status === 401) return handleLogout();
+      const trips = await tripsRes.json();
+
+      // Деталі для кожного рейсу паралельно
+      const details = await Promise.all(
+        trips.map(t =>
+          fetch(`/api/trips/${t.id}/details`, { headers: authHeaders() })
+            .then(r => r.json())
+            .then(d => ({ ...d.trip, deliveries: d.deliveries, allRecords: d.records }))
+            .catch(() => ({ ...t, deliveries: [], allRecords: [] }))
+        )
+      );
+      renderTripsReport(details);
+    }
+  } catch (e) {
+    container.innerHTML = `<div style="text-align:center; padding:40px; color:var(--danger);">Помилка завантаження: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderTripsReport(trips) {
+  const container = document.getElementById('tripsReportContainer');
+  if (!trips || trips.length === 0) {
+    container.innerHTML = `
+      <div style="text-align:center; padding:60px 20px;">
+        <div style="font-size:3rem; margin-bottom:12px;">🚛</div>
+        <p style="color:var(--text-muted); margin-bottom:16px;">Рейсів ще немає. Почніть перший рейс!</p>
+        <button class="btn btn-primary" onclick="openNewTripModal()">+ Новий рейс</button>
+      </div>`;
+    return;
+  }
+
+  let html = '';
+
+  trips.forEach((trip, ti) => {
+    const records = trip.allRecords || [];
+    const deliveries = trip.deliveries || [];
+    const isActive = trip.status === 'active';
+
+    // Кілометраж рейсу
+    let tripKm = '';
+    if (trip.start_odometer && trip.end_odometer) {
+      const km = Number(trip.end_odometer) - Number(trip.start_odometer);
+      if (km > 0) tripKm = `<span style="font-weight:600; color:var(--primary);">🛣️ ${km.toLocaleString('uk-UA')} км</span>`;
+    }
+
+    const tripBadge = isActive
+      ? '<span class="badge badge-open">🟢 Активний</span>'
+      : '<span class="badge badge-closed">✅ Завершений</span>';
+
+    // Знаходимо записи, що не належать жодній доставці
+    const deliveryRecordIds = new Set();
+    deliveries.forEach(d => {
+      if (d.load_record_id) deliveryRecordIds.add(d.load_record_id);
+      if (d.unload_record_id) deliveryRecordIds.add(d.unload_record_id);
+    });
+    // Всі записи що належать доставкам (за delivery_id)
+    const recordsInDeliveries = new Set(records.filter(r => r.delivery_id).map(r => r.id));
+    const unassignedRecords = records.filter(r => !r.delivery_id);
+
+    // Групуємо незакріплені записи в зміни
+    const unassignedShifts = groupIntoShifts(unassignedRecords);
+
+    // Загальна кількість звіт
+    const totalRec = records.length;
+    const reportedRec = records.filter(r => Number(r.is_reported) === 1).length;
+    const reportBadge = totalRec > 0 && reportedRec === totalRec
+      ? `<span class="badge badge-reported-yes">Звіт: ✅ ${reportedRec}/${totalRec}</span>`
+      : `<span class="badge badge-reported-no">Звіт: ⏳ ${reportedRec}/${totalRec}</span>`;
+
+    html += `
+      <div class="trip-card" id="trip_card_${trip.id}">
+        <div class="trip-card-header" onclick="document.getElementById('trip_card_${trip.id}').classList.toggle('expanded')">
+          <div style="flex:1; min-width:0;">
+            <div style="display:flex; align-items:center; flex-wrap:wrap; gap:6px; margin-bottom:4px;">
+              <strong style="font-size:1rem;">#${trip.id} — ${escapeHtml(trip.name)}</strong>
+              ${tripBadge}
+              ${reportBadge}
+            </div>
+            <div style="font-size:0.82rem; color:var(--text-muted); display:flex; flex-wrap:wrap; gap:10px;">
+              <span>📅 ${escapeHtml(trip.start_date)} ${escapeHtml(trip.start_time)}${trip.end_date ? ' → ' + escapeHtml(trip.end_date) + ' ' + escapeHtml(trip.end_time) : ''}</span>
+              ${tripKm}
+              <span>📦 ${deliveries.length} доставок | 📝 ${totalRec} записів</span>
+            </div>
+            ${trip.notes ? `<div style="font-size:0.8rem; color:var(--text-muted); margin-top:3px; font-style:italic;">${escapeHtml(trip.notes)}</div>` : ''}
+          </div>
+          <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+            ${isActive ? `<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.8rem;" onclick="event.stopPropagation(); openCompleteTripModal(${trip.id}, '${escapeHtml(trip.name).replace(/'/g, "\\'")}')">🏁 Завершити</button>` : ''}
+            <span style="font-size:1rem; color:var(--text-muted);">▼</span>
+          </div>
+        </div>
+
+        <div class="trip-card-body">
+          ${ deliveries.length === 0 && unassignedShifts.length === 0
+            ? '<div style="padding:20px; text-align:center; color:var(--text-muted);">Записів у цьому рейсі ще немає</div>'
+            : ''
+          }
+
+          <!-- ДОСТАВКИ -->
+          ${deliveries.map((del, di) => {
+            const delRecords = records.filter(r => r.delivery_id === del.id);
+            const isDelivered = del.status === 'delivered';
+            const delRep = delRecords.filter(r => Number(r.is_reported) === 1).length;
+
+            // Групуємо записи доставки у зміни
+            const delShifts = groupIntoShifts(delRecords);
+
+            const delKm = del.load_odometer && del.unload_odometer
+              ? ` | 🛣️ ${Number(del.unload_odometer) - Number(del.load_odometer)} км`
+              : '';
+
+            return `
+              <div class="delivery-card" id="delivery_${del.id}">
+                <div class="delivery-header" onclick="document.getElementById('delivery_${del.id}').classList.toggle('expanded')">
+                  <div style="flex:1; min-width:0;">
+                    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-bottom:2px;">
+                      <span style="font-weight:600;">📦 ${escapeHtml(del.cargo || 'Вантаж')}</span>
+                      <span class="badge ${isDelivered ? 'badge-closed' : 'badge-open'}">${isDelivered ? '✅ Доставлено' : '🚚 В дорозі'}</span>
+                      ${delRep === delRecords.length && delRecords.length > 0
+                        ? `<span class="badge badge-reported-yes">Звіт: ✅</span>`
+                        : `<span class="badge badge-reported-no">Звіт: ⏳ ${delRep}/${delRecords.length}</span>`}
+                    </div>
+                    <div style="font-size:0.8rem; color:var(--text-muted);">
+                      ${del.load_location ? '📍 З: ' + escapeHtml(del.load_location) : ''}
+                      ${del.load_date ? '(' + escapeHtml(del.load_date) + ' ' + escapeHtml(del.load_time || '') + ')' : ''}
+                      ${del.unload_location ? ' → ' + escapeHtml(del.unload_location) : ''}
+                      ${del.unload_date ? '(' + escapeHtml(del.unload_date) + ')' : ''}
+                      ${delKm}
+                    </div>
+                  </div>
+                  <span style="font-size:0.9rem; color:var(--text-muted);">▼</span>
+                </div>
+
+                <div class="delivery-body">
+                  ${delShifts.length === 0
+                    ? '<div style="padding:10px; color:var(--text-muted); font-size:0.85rem;">Записів немає</div>'
+                    : delShifts.map((sh, si) => renderShiftBlock(sh, `d${del.id}_s${si}`)).join('')
+                  }
+                </div>
+              </div>
+            `;
+          }).join('')}
+
+          <!-- НЕЗАКРІПЛЕНІ ЗМІНИ (не в жодній доставці) -->
+          ${unassignedShifts.length > 0 ? `
+            <div style="margin-top: 10px;">
+              <div style="font-size:0.82rem; color:var(--text-muted); padding: 6px 4px; border-top: 1px solid var(--border); margin-bottom:6px;">⚙️ Записи поза доставками (зміни, паузи тощо)</div>
+              ${unassignedShifts.map((sh, si) => renderShiftBlock(sh, `t${trip.id}_u${si}`)).join('')}
+            </div>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = html;
+
+  // Автоматично розгортаємо перший (найновіший) рейс
+  const firstCard = container.querySelector('.trip-card');
+  if (firstCard) firstCard.classList.add('expanded');
+}
+
+function renderShiftBlock(item, uid) {
+  const eventIds = item.events.map(e => e.id);
+  const reportedCount = item.events.filter(e => Number(e.is_reported) === 1).length;
+  const totalCount = item.events.length;
+  const isAllReported = totalCount > 0 && reportedCount === totalCount;
+  const idsJson = JSON.stringify(eventIds);
+
+  let title = '';
+  let badgeClass = '';
+  let badgeText = '';
+  let metaText = '';
+
+  const shiftReportBadge = isAllReported
+    ? `<span class="badge badge-reported-yes">Звіт: ✅</span>`
+    : `<span class="badge badge-reported-no">Звіт: ⏳ ${reportedCount}/${totalCount}</span>`;
+
+  if (item.type === 'shift') {
+    const isClosed = item.close !== null;
+    if (item.open && isClosed) {
+      title = `${escapeHtml(item.open.date)} (${escapeHtml(item.open.time)} – ${escapeHtml(item.close.time)})`;
+      badgeClass = 'badge-closed';
+      badgeText = 'Закрита зміна';
+      let odoDiff = '';
+      if (item.open.odometer && item.close.odometer) {
+        const diff = Number(item.close.odometer) - Number(item.open.odometer);
+        if (!isNaN(diff) && diff >= 0) odoDiff = ` | Пробіг: <b>${diff} км</b>`;
+      }
+      metaText = `Записів: ${totalCount}${odoDiff}`;
+    } else {
+      title = `Зміна від ${escapeHtml(item.open.date)} ${escapeHtml(item.open.time)}`;
+      badgeClass = 'badge-open';
+      badgeText = '⏳ В процесі';
+      metaText = `Записів: ${totalCount}`;
+    }
+  } else {
+    title = `📅 ${escapeHtml(item.date)}`;
+    badgeClass = 'badge-day';
+    badgeText = 'Поза зміною';
+    metaText = `Записів: ${totalCount}`;
+  }
+
+  return `
+    <div class="shift-card" id="shift_${uid}">
+      <div class="shift-header" onclick="document.getElementById('shift_${uid}').classList.toggle('expanded')">
+        <div style="flex:1; min-width:0;">
+          <div style="display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-bottom:3px;">
+            <strong>${title}</strong>
+            <span class="badge ${badgeClass}">${badgeText}</span>
+            ${shiftReportBadge}
+          </div>
+          <div style="font-size:0.8rem; color:var(--text-muted);">${metaText}</div>
+        </div>
+        <span style="font-size:0.9rem; color:var(--text-muted); padding-left:6px;">▼</span>
+      </div>
+      <div class="shift-body">
+        <div class="shift-bulk-actions">
+          <button class="btn btn-secondary" style="padding:5px 9px; font-size:0.78rem;" onclick='event.stopPropagation(); bulkSetReportStatus(${idsJson}, 1)'>✅ Здати звіт за зміну</button>
+          <button class="btn btn-secondary" style="padding:5px 9px; font-size:0.78rem;" onclick='event.stopPropagation(); bulkSetReportStatus(${idsJson}, 0)'>⏳ Зняти позначку</button>
+        </div>
+        ${item.events.map(ev => {
+          const evReported = Number(ev.is_reported) === 1;
+          return `
+            <div style="padding:8px 0; border-bottom:1px solid var(--border); font-size:0.87rem; display:flex; justify-content:space-between; align-items:flex-start; gap:8px;">
+              <div style="flex:1; min-width:0;">
+                <b>${escapeHtml(ev.action)}</b> <span style="color:var(--text-muted);">(${escapeHtml(ev.time)})</span>
+                ${ev.odometer ? ` — <span style="color:var(--primary);">${escapeHtml(ev.odometer)} км</span>` : ''}
+                ${ev.location ? ` | ${escapeHtml(ev.location)}` : ''}
+                ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.8rem; white-space:pre-line; margin-top:2px;">${escapeHtml(ev.comment)}</div>` : ''}
+                ${ev.coords && ev.coords.includes(',') ? `<div style="margin-top:2px;"><a href="https://www.google.com/maps?q=${encodeURIComponent(ev.coords)}" target="_blank" rel="noopener" style="color:var(--primary); font-size:0.78rem;">🗺️ GPS (${escapeHtml(ev.coords)})</a></div>` : ''}
+              </div>
+              <div style="display:flex; align-items:center; gap:4px; flex-shrink:0;">
+                <button id="report_item_badge_${ev.id}" class="btn-report-toggle ${evReported ? 'badge-reported-yes' : 'badge-reported-no'}" onclick="toggleReportStatus(${ev.id}, ${evReported ? 0 : 1})" title="Змінити статус">${evReported ? 'Звіт: ✅' : 'Звіт: ⏳'}</button>
+                <button class="btn btn-secondary" style="padding:3px 7px; font-size:0.78rem;" onclick="openEditModalById(${ev.id})" title="Редагувати">✏️</button>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ==========================================
 // АНАЛІТИКА ТА ГРАФІЧНИЙ ДАШБОРД (Chart.js)
 // ==========================================
 
@@ -1050,10 +1593,12 @@ async function loadAnalytics() {
 
   const dateFrom = document.getElementById('analyticsDateFrom')?.value || '';
   const dateTo = document.getElementById('analyticsDateTo')?.value || '';
+  const tripId = document.getElementById('analyticsTripSelect')?.value || '';
 
   const params = new URLSearchParams();
   if (dateFrom) params.set('date_from', dateFrom);
   if (dateTo) params.set('date_to', dateTo);
+  if (tripId) params.set('trip_id', tripId);
 
   try {
     const res = await fetch(`/api/records/all?${params.toString()}`, { headers: authHeaders() });

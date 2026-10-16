@@ -1,4 +1,4 @@
-const CACHE_NAME = 'trip-tracker-v2';
+const CACHE_NAME = 'trip-tracker-v3';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

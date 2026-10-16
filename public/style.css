@@ -675,3 +675,262 @@ tr:hover { background: rgba(37,99,235,0.03); }
   height: 260px;
 }
 
+/* РЕЙСИ ТА ДОСТАВКИ */
+.active-trip-banner {
+  background: var(--surface);
+  border: 1px solid var(--primary);
+  border-left: 4px solid var(--primary);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  box-shadow: var(--card-shadow);
+}
+.no-trip-banner {
+  background: var(--surface-sec);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.delivery-card {
+  background: var(--surface-sec);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.delivery-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.delivery-route {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.85rem;
+  margin-top: 4px;
+}
+.delivery-point {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.delivery-point-icon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.trip-accordion-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
+}
+.trip-accordion-header {
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+}
+.trip-accordion-header:hover {
+  background: var(--surface-sec);
+}
+.trip-accordion-body {
+  display: none;
+  padding: 14px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.trip-accordion-item.expanded .trip-accordion-body {
+  display: block;
+}
+
+.sub-section-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 12px 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ==========================================
+   ACTIVE TRIP BANNER
+   ========================================== */
+.active-trip-banner {
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  color: #fff;
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  box-shadow: 0 3px 10px rgba(37, 99, 235, 0.3);
+}
+.active-trip-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.active-trip-label {
+  font-size: 0.75rem;
+  opacity: 0.85;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+.active-trip-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.active-trip-banner .btn {
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.35);
+  color: #fff;
+}
+.active-trip-banner .btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+/* ==========================================
+   TRIP CARD (Level 1: Рейс)
+   ========================================== */
+.trip-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  margin-bottom: 14px;
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
+  transition: box-shadow 0.2s;
+}
+.trip-card:hover {
+  box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+}
+.trip-card-header {
+  padding: 14px 16px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--surface);
+  transition: background 0.15s;
+  user-select: none;
+}
+.trip-card-header:hover {
+  background: var(--surface-sec);
+}
+.trip-card-body {
+  display: none;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.trip-card.expanded .trip-card-body {
+  display: block;
+}
+
+/* ==========================================
+   DELIVERY CARD (Level 2: Доставка)
+   ========================================== */
+.delivery-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+.delivery-header {
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  transition: background 0.15s;
+  user-select: none;
+}
+.delivery-header:hover {
+  background: var(--surface-sec);
+}
+.delivery-body {
+  display: none;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-sec);
+}
+.delivery-card.expanded .delivery-body {
+  display: block;
+}
+
+/* ==========================================
+   SHIFT CARD (Level 3: Зміна)
+   ========================================== */
+.shift-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 6px;
+  overflow: hidden;
+}
+.shift-header {
+  padding: 9px 12px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  transition: background 0.15s;
+  user-select: none;
+}
+.shift-header:hover {
+  background: var(--surface-sec);
+}
+.shift-body {
+  display: none;
+  padding: 6px 12px 10px;
+  border-top: 1px solid var(--border);
+}
+.shift-card.expanded .shift-body {
+  display: block;
+}
+.shift-bulk-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  padding-top: 6px;
+}
+

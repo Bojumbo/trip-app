@@ -35,8 +35,32 @@ const db = new Database(path.join(dataDir, 'database.sqlite'));
 db.pragma('journal_mode = WAL');
 db.pragma('synchronous = NORMAL');
 
-// Ініціалізація структури БД та індексів
+// 1. Ініціалізація структури БД (Рейси, Доставки, Записи, Дії)
 db.exec(`
+  CREATE TABLE IF NOT EXISTS trips (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    status TEXT DEFAULT 'active',
+    start_date TEXT NOT NULL,
+    start_time TEXT NOT NULL,
+    start_odometer INTEGER,
+    end_date TEXT,
+    end_time TEXT,
+    end_odometer INTEGER,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    cargo TEXT,
+    load_record_id INTEGER,
+    unload_record_id INTEGER,
+    status TEXT DEFAULT 'in_transit',
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     date TEXT NOT NULL,
@@ -47,6 +71,8 @@ db.exec(`
     comment TEXT,
     coords TEXT,
     is_reported INTEGER DEFAULT 0,
+    trip_id INTEGER REFERENCES trips(id) ON DELETE SET NULL,
+    delivery_id INTEGER REFERENCES deliveries(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -58,12 +84,85 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_records_date_time ON records(date, time);
   CREATE INDEX IF NOT EXISTS idx_records_odometer ON records(odometer);
   CREATE INDEX IF NOT EXISTS idx_records_is_reported ON records(is_reported);
+  CREATE INDEX IF NOT EXISTS idx_records_trip_id ON records(trip_id);
+  CREATE INDEX IF NOT EXISTS idx_records_delivery_id ON records(delivery_id);
+  CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status);
+  CREATE INDEX IF NOT EXISTS idx_deliveries_trip_id ON deliveries(trip_id);
 `);
 
-// Міграція для перевірки поля is_reported
-const tableInfo = db.pragma('table_info(records)');
-if (!tableInfo.some(col => col.name === 'is_reported')) {
+// 2. Міграції для існуючих таблиць
+const recordCols = db.pragma('table_info(records)').map(c => c.name);
+if (!recordCols.includes('is_reported')) {
   db.exec('ALTER TABLE records ADD COLUMN is_reported INTEGER DEFAULT 0');
+}
+if (!recordCols.includes('trip_id')) {
+  db.exec('ALTER TABLE records ADD COLUMN trip_id INTEGER REFERENCES trips(id) ON DELETE SET NULL');
+}
+if (!recordCols.includes('delivery_id')) {
+  db.exec('ALTER TABLE records ADD COLUMN delivery_id INTEGER REFERENCES deliveries(id) ON DELETE SET NULL');
+}
+
+// 3. Автоматична міграція існуючих даних у «Рейс #1», якщо база вже мала записи
+const tripsCount = db.prepare('SELECT count(*) as count FROM trips').get().count;
+const unassignedRecords = db.prepare('SELECT count(*) as count FROM records WHERE trip_id IS NULL').get().count;
+
+if (tripsCount === 0 && unassignedRecords > 0) {
+  const firstRec = db.prepare('SELECT date, time, odometer FROM records ORDER BY date ASC, time ASC, id ASC LIMIT 1').get();
+  const lastRec = db.prepare('SELECT date, time, odometer FROM records ORDER BY date DESC, time DESC, id DESC LIMIT 1').get();
+
+  const initTrip = db.prepare(`
+    INSERT INTO trips (name, status, start_date, start_time, start_odometer, end_date, end_time, end_odometer, notes)
+    VALUES (?, 'completed', ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'Рейс #1 (Початковий)',
+    firstRec ? firstRec.date : new Date().toISOString().slice(0, 10),
+    firstRec ? firstRec.time : '08:00',
+    firstRec ? firstRec.odometer : null,
+    lastRec ? lastRec.date : null,
+    lastRec ? lastRec.time : null,
+    lastRec ? lastRec.odometer : null,
+    'Автоматично створений рейс для збереженої історії'
+  );
+  db.prepare('UPDATE records SET trip_id = ? WHERE trip_id IS NULL').run(initTrip.lastInsertRowid);
+}
+
+// Зв'язуємо існуючі пари загрузок/вигрузок у доставки, якщо таблиця deliveries порожня
+const deliveriesCount = db.prepare('SELECT count(*) as count FROM deliveries').get().count;
+if (deliveriesCount === 0 && unassignedRecords > 0) {
+  const loads = db.prepare(`
+    SELECT * FROM records 
+    WHERE (lower(action) LIKE '%загруз%' OR lower(action) LIKE '%завантаж%')
+    ORDER BY date ASC, time ASC, id ASC
+  `).all();
+
+  for (const loadRec of loads) {
+    const unloadRec = db.prepare(`
+      SELECT * FROM records 
+      WHERE (lower(action) LIKE '%вигруз%' OR lower(action) LIKE '%розвантаж%')
+        AND (date > ? OR (date = ? AND time >= ?))
+        AND delivery_id IS NULL
+      ORDER BY date ASC, time ASC, id ASC
+      LIMIT 1
+    `).get(loadRec.date, loadRec.date, loadRec.time);
+
+    const cargoText = loadRec.comment ? loadRec.comment.slice(0, 255) : (loadRec.location ? `Вантаж (${loadRec.location})` : 'Вантаж');
+    const isCompleted = unloadRec !== undefined;
+    const info = db.prepare(`
+      INSERT INTO deliveries (trip_id, cargo, load_record_id, unload_record_id, status)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      loadRec.trip_id || 1,
+      cargoText,
+      loadRec.id,
+      unloadRec ? unloadRec.id : null,
+      isCompleted ? 'delivered' : 'in_transit'
+    );
+    const delId = info.lastInsertRowid;
+    db.prepare('UPDATE records SET delivery_id = ? WHERE id = ?').run(delId, loadRec.id);
+    if (unloadRec) {
+      db.prepare('UPDATE records SET delivery_id = ? WHERE id = ?').run(delId, unloadRec.id);
+    }
+  }
 }
 
 const countActions = db.prepare('SELECT count(*) as count FROM actions').get();
@@ -84,13 +183,12 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rate Limiter для захисту від brute-force з очищенням пам'яті (Sliding Window)
+// Rate Limiter для захисту від brute-force з очищенням пам'яті
 const loginAttempts = new Map();
 const MAX_ATTEMPTS = 5;
-const LOCK_TIME_MS = 15 * 60 * 1000; // 15 хв
+const LOCK_TIME_MS = 15 * 60 * 1000;
 const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
 
-// Періодичне очищення старих записів для запобігання витоку пам'яті
 const cleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [ip, rec] of loginAttempts.entries()) {
@@ -121,7 +219,6 @@ function checkRateLimit(ip) {
     return { allowed: true };
   }
 
-  // Якщо вікно минуло - скидаємо лічильник
   if (now - record.firstAttempt > ATTEMPT_WINDOW_MS) {
     loginAttempts.delete(ip);
     return { allowed: true };
@@ -152,7 +249,6 @@ function clearFailedLogin(ip) {
 
 function verifyPassword(inputPassword, storedPassword) {
   if (!storedPassword || !inputPassword) return false;
-  // Якщо пароль у конфігу є bcrypt-хешем
   if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$')) {
     try {
       return bcrypt.compareSync(inputPassword, storedPassword);
@@ -160,7 +256,6 @@ function verifyPassword(inputPassword, storedPassword) {
       return false;
     }
   }
-  // Безпечне порівняння відкритих рядків для захисту від timing attacks
   try {
     const inputBuf = Buffer.from(inputPassword, 'utf8');
     const storedBuf = Buffer.from(storedPassword, 'utf8');
@@ -206,13 +301,141 @@ app.post('/api/login', (req, res) => {
   res.status(401).json({ success: false, error: 'Невірний пароль' });
 });
 
-// 2. Довідник дій
+// ==========================================
+// 2. КЕРУВАННЯ РЕЙСАМИ (TRIPS)
+// ==========================================
+
+// Отримати активний рейс та його відкриті доставки
+app.get('/api/trips/active', authMiddleware, (req, res) => {
+  try {
+    const activeTrip = db.prepare("SELECT * FROM trips WHERE status = 'active' ORDER BY id DESC LIMIT 1").get();
+    if (!activeTrip) {
+      return res.json({ activeTrip: null, activeDeliveries: [] });
+    }
+
+    const activeDeliveries = db.prepare(`
+      SELECT d.*, 
+             r.location as load_location, 
+             r.date as load_date, 
+             r.time as load_time,
+             r.odometer as load_odometer
+      FROM deliveries d
+      LEFT JOIN records r ON d.load_record_id = r.id
+      WHERE d.trip_id = ? AND d.status = 'in_transit'
+      ORDER BY d.id ASC
+    `).all(activeTrip.id);
+
+    res.json({ activeTrip, activeDeliveries });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Список усіх рейсів
+app.get('/api/trips', authMiddleware, (req, res) => {
+  try {
+    const trips = db.prepare(`
+      SELECT t.*,
+        (SELECT count(*) FROM records r WHERE r.trip_id = t.id) as records_count,
+        (SELECT count(*) FROM deliveries d WHERE d.trip_id = t.id) as deliveries_count,
+        (SELECT count(*) FROM deliveries d WHERE d.trip_id = t.id AND d.status = 'delivered') as delivered_count
+      FROM trips t
+      ORDER BY t.id DESC
+    `).all();
+    res.json(trips);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Створення / Відкриття нового рейсу
+app.post('/api/trips', authMiddleware, (req, res) => {
+  const { name, start_date, start_time, start_odometer, notes } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Вкажіть назву або маршрут рейсу' });
+
+  // Перевірка чи немає вже активного рейсу
+  const existingActive = db.prepare("SELECT id, name FROM trips WHERE status = 'active' LIMIT 1").get();
+  if (existingActive) {
+    return res.status(400).json({ 
+      error: `Вже є активний "${existingActive.name}" (#${existingActive.id}). Спочатку завершіть його!` 
+    });
+  }
+
+  const sDate = start_date || new Date().toISOString().slice(0, 10);
+  const sTime = start_time || new Date().toTimeString().slice(0, 5);
+  const sOdo = (start_odometer !== '' && start_odometer !== null && !isNaN(start_odometer)) ? Math.round(Number(start_odometer)) : null;
+
+  try {
+    const stmt = db.prepare(`
+      INSERT INTO trips (name, status, start_date, start_time, start_odometer, notes)
+      VALUES (?, 'active', ?, ?, ?, ?)
+    `);
+    const info = stmt.run(name.trim(), sDate, sTime, sOdo, notes ? String(notes).trim().slice(0, 1000) : '');
+    res.json({ success: true, id: info.lastInsertRowid });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Завершення рейсу
+app.post('/api/trips/:id/complete', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  const { end_date, end_time, end_odometer, notes } = req.body;
+
+  const eDate = end_date || new Date().toISOString().slice(0, 10);
+  const eTime = end_time || new Date().toTimeString().slice(0, 5);
+  const eOdo = (end_odometer !== '' && end_odometer !== null && !isNaN(end_odometer)) ? Math.round(Number(end_odometer)) : null;
+
+  try {
+    const info = db.prepare(`
+      UPDATE trips 
+      SET status = 'completed', end_date = ?, end_time = ?, end_odometer = ?, notes = COALESCE(?, notes)
+      WHERE id = ?
+    `).run(eDate, eTime, eOdo, notes ? String(notes).trim().slice(0, 1000) : null, id);
+
+    if (info.changes > 0) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Рейс не знайдено' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Повні деталі рейсу: доставки, зміни, події
+app.get('/api/trips/:id/details', authMiddleware, (req, res) => {
+  const { id } = req.params;
+  try {
+    const trip = db.prepare('SELECT * FROM trips WHERE id = ?').get(id);
+    if (!trip) return res.status(404).json({ error: 'Рейс не знайдено' });
+
+    const deliveries = db.prepare(`
+      SELECT d.*, 
+        lr.date as load_date, lr.time as load_time, lr.location as load_location, lr.odometer as load_odometer,
+        ur.date as unload_date, ur.time as unload_time, ur.location as unload_location, ur.odometer as unload_odometer
+      FROM deliveries d
+      LEFT JOIN records lr ON d.load_record_id = lr.id
+      LEFT JOIN records ur ON d.unload_record_id = ur.id
+      WHERE d.trip_id = ?
+      ORDER BY d.id ASC
+    `).all(id);
+
+    const records = db.prepare('SELECT * FROM records WHERE trip_id = ? ORDER BY date ASC, time ASC, id ASC').all(id);
+
+    res.json({ trip, deliveries, records });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Довідник дій
 app.get('/api/actions', authMiddleware, (req, res) => {
   const actions = db.prepare('SELECT name FROM actions ORDER BY id ASC').all();
   res.json(actions.map(a => a.name));
 });
 
-// 3. Останній заповнений одометр (> 0)
+// Останній заповнений одометр (> 0)
 app.get('/api/odometer/last', authMiddleware, (req, res) => {
   try {
     const row = db.prepare(`
@@ -250,12 +473,12 @@ function validateRecordInput(body) {
   return null;
 }
 
-// 4. Додавання одного запису
+// Додавання одного запису (з авто-прив'язкою до Рейсу та Доставки)
 app.post('/api/records', authMiddleware, (req, res) => {
   const error = validateRecordInput(req.body);
   if (error) return res.status(400).json({ error });
 
-  const { date, time, odometer, action, location, comment, coords, is_reported } = req.body;
+  const { date, time, odometer, action, location, comment, coords, is_reported, cargo, delivery_id, trip_id } = req.body;
   try {
     const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Math.round(Number(odometer)) : null;
     const isReportedVal = is_reported ? 1 : 0;
@@ -263,18 +486,67 @@ app.post('/api/records', authMiddleware, (req, res) => {
     const commClean = comment ? String(comment).trim().slice(0, 2000) : '';
     const coordsClean = coords ? String(coords).trim().slice(0, 100) : '';
 
-    const stmt = db.prepare(`
-      INSERT INTO records (date, time, odometer, action, location, comment, coords, is_reported)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    const info = stmt.run(date, time, odoNum, action.trim(), locClean, commClean, coordsClean, isReportedVal);
-    res.json({ success: true, id: info.lastInsertRowid });
+    // Якщо trip_id не вказано - беремо активний рейс
+    let targetTripId = trip_id ? Number(trip_id) : null;
+    if (!targetTripId) {
+      const active = db.prepare("SELECT id FROM trips WHERE status = 'active' ORDER BY id DESC LIMIT 1").get();
+      if (active) targetTripId = active.id;
+    }
+
+    let assignedDeliveryId = delivery_id ? Number(delivery_id) : null;
+    const actLower = action.trim().toLowerCase();
+
+    const insertTx = db.transaction(() => {
+      const stmt = db.prepare(`
+        INSERT INTO records (date, time, odometer, action, location, comment, coords, is_reported, trip_id, delivery_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(date, time, odoNum, action.trim(), locClean, commClean, coordsClean, isReportedVal, targetTripId, assignedDeliveryId);
+      const newRecordId = info.lastInsertRowid;
+
+      // Якщо дія - Загрузка: створюємо нову Доставку
+      if (targetTripId && (actLower.includes('загруз') || actLower.includes('завантаж'))) {
+        const cargoDesc = cargo ? String(cargo).trim().slice(0, 255) : (locClean ? `Вантаж (${locClean})` : 'Вантаж');
+        const delInfo = db.prepare(`
+          INSERT INTO deliveries (trip_id, cargo, load_record_id, status)
+          VALUES (?, ?, ?, 'in_transit')
+        `).run(targetTripId, cargoDesc, newRecordId);
+        assignedDeliveryId = delInfo.lastInsertRowid;
+        db.prepare('UPDATE records SET delivery_id = ? WHERE id = ?').run(assignedDeliveryId, newRecordId);
+      }
+
+      // Якщо дія - Вигрузка: завершуємо відповідну Доставку
+      if (targetTripId && (actLower.includes('вигруз') || actLower.includes('розвантаж'))) {
+        let targetDel = null;
+        if (assignedDeliveryId) {
+          targetDel = db.prepare('SELECT id FROM deliveries WHERE id = ?').get(assignedDeliveryId);
+        } else {
+          // Беремо найпершу відкриту доставку цього рейсу
+          targetDel = db.prepare("SELECT id FROM deliveries WHERE trip_id = ? AND status = 'in_transit' ORDER BY id ASC LIMIT 1").get(targetTripId);
+        }
+
+        if (targetDel) {
+          assignedDeliveryId = targetDel.id;
+          db.prepare(`
+            UPDATE deliveries 
+            SET unload_record_id = ?, status = 'delivered' 
+            WHERE id = ?
+          `).run(newRecordId, targetDel.id);
+          db.prepare('UPDATE records SET delivery_id = ? WHERE id = ?').run(targetDel.id, newRecordId);
+        }
+      }
+
+      return newRecordId;
+    });
+
+    const newId = insertTx();
+    res.json({ success: true, id: newId, trip_id: targetTripId, delivery_id: assignedDeliveryId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 5. Парсер TSV з лапками для імпорту
+// Парсер TSV
 function parseTSV(text) {
   const rows = [];
   let currentRow = [];
@@ -312,16 +584,19 @@ function parseTSV(text) {
   return rows;
 }
 
-// 6. Масовий імпорт
+// Масовий імпорт
 app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
   const { rawText } = req.body;
   if (!rawText) return res.status(400).json({ error: 'Текст для імпорту порожній' });
 
   try {
     const rows = parseTSV(rawText.trim());
+    const active = db.prepare("SELECT id FROM trips WHERE status = 'active' ORDER BY id DESC LIMIT 1").get();
+    const targetTripId = active ? active.id : 1;
+
     const stmt = db.prepare(`
-      INSERT INTO records (date, time, odometer, action, location, comment, coords, is_reported)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO records (date, time, odometer, action, location, comment, coords, is_reported, trip_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     let count = 0;
@@ -342,7 +617,7 @@ app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
 
         let t = col[1] ? col[1].trim() : '';
         if (t.length > 5 && t.includes(':')) {
-          t = t.slice(0, 5); // скорочуємо HH:MM:SS до HH:MM
+          t = t.slice(0, 5);
         }
 
         const odoRaw = col[2] ? col[2].toString().trim() : '';
@@ -358,7 +633,7 @@ app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
         }
 
         if (d && t && act) {
-          stmt.run(d, t, odo, act, loc, comm, coords, isReported);
+          stmt.run(d, t, odo, act, loc, comm, coords, isReported, targetTripId);
           count++;
         }
       }
@@ -371,7 +646,7 @@ app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
   }
 });
 
-// 7. Таблиця (з пошуком, фільтрацією та пагінацією)
+// Таблиця записів (з фільтрацією за trip_id)
 app.get('/api/records', authMiddleware, (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 500);
   const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
@@ -379,9 +654,15 @@ app.get('/api/records', authMiddleware, (req, res) => {
   const dateFrom = req.query.date_from ? String(req.query.date_from).trim() : '';
   const dateTo = req.query.date_to ? String(req.query.date_to).trim() : '';
   const isReported = req.query.is_reported;
+  const tripId = req.query.trip_id;
 
   const whereClauses = [];
   const params = [];
+
+  if (tripId) {
+    whereClauses.push('trip_id = ?');
+    params.push(tripId);
+  }
 
   if (search) {
     whereClauses.push('(location LIKE ? OR comment LIKE ? OR action LIKE ?)');
@@ -410,9 +691,12 @@ app.get('/api/records', authMiddleware, (req, res) => {
   const total = totalStmt.get(...params).total;
 
   const recordsStmt = db.prepare(`
-    SELECT * FROM records 
+    SELECT r.*, t.name as trip_name, d.cargo as delivery_cargo
+    FROM records r
+    LEFT JOIN trips t ON r.trip_id = t.id
+    LEFT JOIN deliveries d ON r.delivery_id = d.id
     ${whereSql} 
-    ORDER BY date DESC, time DESC, id DESC 
+    ORDER BY r.date DESC, r.time DESC, r.id DESC 
     LIMIT ? OFFSET ?
   `);
   const records = recordsStmt.all(...params, limit, offset);
@@ -420,13 +704,13 @@ app.get('/api/records', authMiddleware, (req, res) => {
   res.json({ records, total, hasMore: offset + records.length < total });
 });
 
-// 8. Редагування запису (з підтримкою coords)
+// Редагування запису
 app.put('/api/records/:id', authMiddleware, (req, res) => {
   const { id } = req.params;
   const error = validateRecordInput(req.body);
   if (error) return res.status(400).json({ error });
 
-  const { date, time, odometer, action, location, comment, coords, is_reported } = req.body;
+  const { date, time, odometer, action, location, comment, coords, is_reported, trip_id, delivery_id } = req.body;
   try {
     const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Math.round(Number(odometer)) : null;
     const isReportedVal = is_reported ? 1 : 0;
@@ -436,9 +720,9 @@ app.put('/api/records/:id', authMiddleware, (req, res) => {
 
     const info = db.prepare(`
       UPDATE records 
-      SET date = ?, time = ?, odometer = ?, action = ?, location = ?, comment = ?, coords = ?, is_reported = ?
+      SET date = ?, time = ?, odometer = ?, action = ?, location = ?, comment = ?, coords = ?, is_reported = ?, trip_id = COALESCE(?, trip_id), delivery_id = ?
       WHERE id = ?
-    `).run(date, time, odoNum, action.trim(), locClean, commClean, coordsClean, isReportedVal, id);
+    `).run(date, time, odoNum, action.trim(), locClean, commClean, coordsClean, isReportedVal, trip_id || null, delivery_id || null, id);
 
     if (info.changes > 0) {
       res.json({ success: true });
@@ -450,7 +734,7 @@ app.put('/api/records/:id', authMiddleware, (req, res) => {
   }
 });
 
-// 9. Швидке перемикання статусу "Звіт здано" для окремого елемента
+// Швидке перемикання статусу "Звіт здано"
 app.patch('/api/records/:id/report-status', authMiddleware, (req, res) => {
   const { id } = req.params;
   const { is_reported } = req.body;
@@ -467,7 +751,7 @@ app.patch('/api/records/:id/report-status', authMiddleware, (req, res) => {
   }
 });
 
-// 10. Масове перемикання статусу "Звіт здано" для списку ID
+// Масове перемикання статусу "Звіт здано"
 app.post('/api/records/bulk-report-status', authMiddleware, (req, res) => {
   const { ids, is_reported } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -488,7 +772,7 @@ app.post('/api/records/bulk-report-status', authMiddleware, (req, res) => {
   }
 });
 
-// 11. Видалення запису
+// Видалення запису
 app.delete('/api/records/:id', authMiddleware, (req, res) => {
   try {
     const info = db.prepare('DELETE FROM records WHERE id = ?').run(req.params.id);
@@ -502,15 +786,20 @@ app.delete('/api/records/:id', authMiddleware, (req, res) => {
   }
 });
 
-// 12. Всі записи для Звіту (хронологічно: date ASC, time ASC, id ASC)
+// Всі записи для Звіту (хронологічно: date ASC, time ASC, id ASC)
 app.get('/api/records/all', authMiddleware, (req, res) => {
   try {
     const dateFrom = req.query.date_from ? String(req.query.date_from).trim() : '';
     const dateTo = req.query.date_to ? String(req.query.date_to).trim() : '';
+    const tripId = req.query.trip_id;
 
     const whereClauses = [];
     const params = [];
 
+    if (tripId) {
+      whereClauses.push('trip_id = ?');
+      params.push(tripId);
+    }
     if (dateFrom) {
       whereClauses.push('date >= ?');
       params.push(dateFrom);
