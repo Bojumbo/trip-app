@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>Система обліку рейсів</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="theme-color" content="#2563eb" id="themeMeta">
 
@@ -153,8 +154,10 @@
   <div id="loginScreen">
     <div class="login-card">
       <h2 style="margin-bottom: 20px;">Вхід в систему</h2>
-      <input type="password" id="loginPassword" placeholder="Введіть пароль" style="margin-bottom: 15px;">
-      <button class="btn btn-primary" style="width: 100%;" onclick="handleLogin()">Увійти</button>
+      <form id="loginForm" onsubmit="event.preventDefault(); handleLogin();">
+        <input type="password" id="loginPassword" placeholder="Введіть пароль" autocomplete="current-password" style="margin-bottom: 15px;" required>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Увійти</button>
+      </form>
       <div id="loginError" style="color: var(--danger); font-size: 0.85rem; margin-top: 10px; display: none;"></div>
     </div>
   </div>
@@ -338,21 +341,35 @@
     let actionsList = [];
 
     async function handleLogin() {
-      const pwd = document.getElementById('loginPassword').value;
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: pwd })
-      });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem('trip_token', data.token);
-        token = data.token;
-        showApp();
-      } else {
-        const err = document.getElementById('loginError');
-        err.innerText = data.error;
-        err.style.display = 'block';
+      const pwdInput = document.getElementById('loginPassword');
+      const errDiv = document.getElementById('loginError');
+      errDiv.style.display = 'none';
+
+      const pwd = pwdInput ? pwdInput.value.trim() : '';
+      if (!pwd) {
+        errDiv.innerText = 'Введіть пароль';
+        errDiv.style.display = 'block';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pwd })
+        });
+        const data = await res.json();
+        if (data.success) {
+          localStorage.setItem('trip_token', data.token);
+          token = data.token;
+          showApp();
+        } else {
+          errDiv.innerText = data.error || 'Невірний пароль';
+          errDiv.style.display = 'block';
+        }
+      } catch (err) {
+        errDiv.innerText = 'Помилка зв’язку з сервером';
+        errDiv.style.display = 'block';
       }
     }
 
@@ -393,7 +410,8 @@
     function setTheme(t) {
       document.documentElement.setAttribute('data-theme', t);
       localStorage.setItem('app_theme', t);
-      document.getElementById('themeBtn').innerText = t === 'dark' ? '☀️' : '🌙';
+      const btn = document.getElementById('themeBtn');
+      if (btn) btn.innerText = t === 'dark' ? '☀️' : '🌙';
     }
 
     function setNowDateTime() {
@@ -401,22 +419,30 @@
       const y = now.getFullYear();
       const m = String(now.getMonth() + 1).padStart(2, '0');
       const d = String(now.getDate()).padStart(2, '0');
-      document.getElementById('dateInput').value = `${y}-${m}-${d}`;
-      document.getElementById('timeInput').value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const dateInp = document.getElementById('dateInput');
+      const timeInp = document.getElementById('timeInput');
+      if (dateInp) dateInp.value = `${y}-${m}-${d}`;
+      if (timeInp) timeInp.value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     }
 
     function fetchGPS() {
       const txt = document.getElementById('geoStatusText');
       const dot = document.getElementById('geoDot');
-      if (!navigator.geolocation) { txt.innerText = 'GPS не підтримується'; return; }
+      if (!navigator.geolocation) {
+        if (txt) txt.innerText = 'GPS не підтримується';
+        return;
+      }
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           userCoords = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
-          document.getElementById('coords').value = userCoords;
-          txt.innerText = `GPS: ${userCoords}`;
-          dot.className = 'dot active';
+          const cInp = document.getElementById('coords');
+          if (cInp) cInp.value = userCoords;
+          if (txt) txt.innerText = `GPS: ${userCoords}`;
+          if (dot) dot.className = 'dot active';
         },
-        (err) => { txt.innerText = 'GPS: ' + err.message; },
+        (err) => {
+          if (txt) txt.innerText = 'GPS: ' + err.message;
+        },
         { enableHighAccuracy: true, timeout: 10000 }
       );
     }
@@ -428,15 +454,14 @@
       
       const s1 = document.getElementById('action');
       const s2 = document.getElementById('editAction');
-      s1.innerHTML = '<option value="" disabled selected>Оберіть дію...</option>';
-      s2.innerHTML = '';
+      if (s1) s1.innerHTML = '<option value="" disabled selected>Оберіть дію...</option>';
+      if (s2) s2.innerHTML = '';
       actionsList.forEach(a => {
-        s1.innerHTML += `<option value="${a}">${a}</option>`;
-        s2.innerHTML += `<option value="${a}">${a}</option>`;
+        if (s1) s1.innerHTML += `<option value="${a}">${a}</option>`;
+        if (s2) s2.innerHTML += `<option value="${a}">${a}</option>`;
       });
     }
 
-    // Автопідтягування останнього заповненого одометра
     async function loadLastOdometer() {
       try {
         const res = await fetch('/api/odometer/last', { headers: authHeaders() });
@@ -444,12 +469,14 @@
         const inp = document.getElementById('odometer');
         const hint = document.getElementById('lastOdoHint');
         if (data.lastOdometer) {
-          inp.value = data.lastOdometer;
-          hint.innerText = `Попередній: ${data.lastOdometer} км`;
+          if (inp) inp.value = data.lastOdometer;
+          if (hint) hint.innerText = `Попередній: ${data.lastOdometer} км`;
         } else {
-          inp.value = '';
-          inp.placeholder = 'напр. 154320';
-          hint.innerText = '';
+          if (inp) {
+            inp.value = '';
+            inp.placeholder = 'напр. 154320';
+          }
+          if (hint) hint.innerText = '';
         }
       } catch (e) {
         console.error('Помилка одометра', e);
@@ -458,8 +485,10 @@
 
     function switchTab(t) {
       ['form', 'report', 'table'].forEach(x => {
-        document.getElementById(`tab${capitalize(x)}`).style.display = (x === t ? 'block' : 'none');
-        document.getElementById(`tab${capitalize(x)}Btn`).classList.toggle('active', x === t);
+        const tabEl = document.getElementById(`tab${capitalize(x)}`);
+        const tabBtn = document.getElementById(`tab${capitalize(x)}Btn`);
+        if (tabEl) tabEl.style.display = (x === t ? 'block' : 'none');
+        if (tabBtn) tabBtn.classList.toggle('active', x === t);
       });
       if (t === 'form') loadLastOdometer();
       if (t === 'report') loadShiftsReport();
@@ -509,7 +538,8 @@
     async function reloadTable(reset = true) {
       if (reset) {
         currentOffset = 0;
-        document.getElementById('tableBody').innerHTML = '';
+        const tb = document.getElementById('tableBody');
+        if (tb) tb.innerHTML = '';
       }
       await loadMoreRecords(30);
     }
@@ -519,40 +549,44 @@
       const data = await res.json();
       
       totalRecords = data.total;
-      document.getElementById('totalRecordsCount').innerText = totalRecords;
+      const cnt = document.getElementById('totalRecordsCount');
+      if (cnt) cnt.innerText = totalRecords;
 
       const tbody = document.getElementById('tableBody');
-      data.records.forEach(r => {
-        tbody.innerHTML += `
-          <tr id="row_${r.id}">
-            <td><b>#${r.id}</b></td>
-            <td>${r.date}</td>
-            <td>${r.time}</td>
-            <td>${r.odometer ? r.odometer + ' км' : '-'}</td>
-            <td><span style="font-weight:600; color:var(--primary);">${r.action}</span></td>
-            <td>${r.location || '-'}</td>
-            <td style="white-space: pre-line;">${r.comment || '-'}</td>
-            <td>
-              ${r.coords && r.coords.includes(',') 
-                ? `<a href="https://www.google.com/maps?q=${r.coords}" target="_blank" style="color:var(--primary); text-decoration:none;">🗺️ GPS</a>` 
-                : '-'}
-            </td>
-            <td>
-              <div style="display:flex; gap:4px;">
-                <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick='openEditModal(${JSON.stringify(r)})' title="Редагувати">✏️</button>
-                <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem; color:var(--danger);" onclick="deleteRecord(${r.id})" title="Видалити">🗑️</button>
-              </div>
-            </td>
-          </tr>
-        `;
-      });
+      if (tbody) {
+        data.records.forEach(r => {
+          tbody.innerHTML += `
+            <tr id="row_${r.id}">
+              <td><b>#${r.id}</b></td>
+              <td>${r.date}</td>
+              <td>${r.time}</td>
+              <td>${r.odometer ? r.odometer + ' км' : '-'}</td>
+              <td><span style="font-weight:600; color:var(--primary);">${r.action}</span></td>
+              <td>${r.location || '-'}</td>
+              <td style="white-space: pre-line;">${r.comment || '-'}</td>
+              <td>
+                ${r.coords && r.coords.includes(',') 
+                  ? `<a href="https://www.google.com/maps?q=${r.coords}" target="_blank" style="color:var(--primary); text-decoration:none;">🗺️ GPS</a>` 
+                  : '-'}
+              </td>
+              <td>
+                <div style="display:flex; gap:4px;">
+                  <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick='openEditModal(${JSON.stringify(r)})' title="Редагувати">✏️</button>
+                  <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem; color:var(--danger);" onclick="deleteRecord(${r.id})" title="Видалити">🗑️</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        });
+      }
 
       currentOffset += data.records.length;
-      document.getElementById('tableLoadedStatus').innerText = `Показано ${currentOffset} із ${totalRecords} записів`;
-      document.getElementById('loadMoreSection').style.display = (currentOffset >= totalRecords ? 'none' : 'flex');
+      const st = document.getElementById('tableLoadedStatus');
+      if (st) st.innerText = `Показано ${currentOffset} із ${totalRecords} записів`;
+      const lm = document.getElementById('loadMoreSection');
+      if (lm) lm.style.display = (currentOffset >= totalRecords ? 'none' : 'flex');
     }
 
-    // Редагування
     function openEditModal(record) {
       document.getElementById('editId').value = record.id;
       document.getElementById('editDate').value = record.date;
@@ -589,7 +623,6 @@
       }
     }
 
-    // ФУНКЦІЯ ВИДАЛЕННЯ
     async function deleteRecord(id) {
       if (!confirm(`Ви дійсно бажаєте видалити запис #${id}?`)) return;
 
@@ -615,7 +648,6 @@
       }
     }
 
-    // Імпорт
     function openImportModal() {
       document.getElementById('importModal').style.display = 'flex';
       document.getElementById('importRawText').focus();
@@ -653,7 +685,6 @@
       }
     }
 
-    // Звіт по змінах та днях
     async function loadShiftsReport() {
       const container = document.getElementById('shiftsContainer');
       container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Завантаження звіту...</div>';
@@ -701,3 +732,86 @@
           } else {
             addStandalone(r);
           }
+        }
+      });
+
+      if (currentShift) items.push(currentShift);
+      return items.reverse();
+    }
+
+    function renderShifts(items) {
+      const container = document.getElementById('shiftsContainer');
+      if (items.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px;">Записів ще немає</div>';
+        return;
+      }
+      let html = '';
+      items.forEach((item, idx) => {
+        let title = '';
+        let badgeClass = '';
+        let badgeText = '';
+        let metaText = '';
+
+        if (item.type === 'shift') {
+          const isOpen = item.open !== null;
+          const isClosed = item.close !== null;
+
+          if (isOpen && isClosed) {
+            title = `${item.open.date} (${item.open.time} - ${item.close.time})`;
+            badgeClass = 'badge-closed';
+            badgeText = 'Закрита';
+            let odoDiff = '';
+            if (item.open.odometer && item.close.odometer) {
+              const diff = Number(item.close.odometer) - Number(item.open.odometer);
+              if (!isNaN(diff)) odoDiff = `| Пробіг: <b>${diff} км</b>`;
+            }
+            metaText = `Записів: ${item.events.length} ${odoDiff}`;
+          } else {
+            title = `Зміна від ${item.open.date} ${item.open.time}`;
+            badgeClass = 'badge-open';
+            badgeText = 'В процесі ⏳';
+            metaText = `Записів: ${item.events.length}`;
+          }
+        } else {
+          title = `📅 ${item.date}`;
+          badgeClass = 'badge-day';
+          badgeText = 'Поза зміною';
+          metaText = `Записів за день: ${item.events.length}`;
+        }
+
+        html += `
+          <div class="shift-card" id="shift_${idx}">
+            <div class="shift-header" onclick="document.getElementById('shift_${idx}').classList.toggle('expanded')">
+              <div>
+                <strong>${title}</strong> <span class="badge ${badgeClass}">${badgeText}</span>
+                <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
+                  ${metaText}
+                </div>
+              </div>
+              <div>▼</div>
+            </div>
+            <div class="shift-body">
+              ${item.events.map(ev => `
+                <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem;">
+                  <b>${ev.action}</b> (${ev.time}) — ${ev.odometer ? ev.odometer + ' км' : ''} ${ev.location ? '| ' + ev.location : ''}
+                  ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.85rem; white-space:pre-line;">${ev.comment}</div>` : ''}
+                  ${ev.coords && ev.coords.includes(',') ? `
+                    <div style="margin-top: 3px;">
+                      <a href="https://www.google.com/maps?q=${ev.coords}" target="_blank" style="color:var(--primary); text-decoration:none; font-size:0.8rem;">
+                        🗺️ Мапа (${ev.coords})
+                      </a>
+                    </div>
+                  ` : ''}
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        `;
+      });
+      container.innerHTML = html;
+    }
+
+    if (token) showApp();
+  </script>
+</body>
+</html>
