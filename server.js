@@ -9,13 +9,11 @@ const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_12345';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
 
-// Створення папки під дані
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new Database(path.join(dataDir, 'database.sqlite'));
 
-// Ініціалізація структури бази
 db.exec(`
   CREATE TABLE IF NOT EXISTS records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,7 +33,6 @@ db.exec(`
   );
 `);
 
-// Базові дії
 const countActions = db.prepare('SELECT count(*) as count FROM actions').get();
 if (countActions.count === 0) {
   const insertAction = db.prepare('INSERT INTO actions (name) VALUES (?)');
@@ -45,7 +42,6 @@ if (countActions.count === 0) {
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Middleware авторизації
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Не авторизовано' });
@@ -68,34 +64,46 @@ app.post('/api/login', (req, res) => {
   res.status(400).json({ success: false, error: 'Невірний пароль' });
 });
 
-// 2. Дії (Спадний список)
+// 2. Дії
 app.get('/api/actions', authMiddleware, (req, res) => {
   const actions = db.prepare('SELECT name FROM actions ORDER BY id ASC').all();
   res.json(actions.map(a => a.name));
 });
 
-// 3. Останній показник одометра
+// 3. Надійне отримання останнього заповненого одометра (> 0)
 app.get('/api/odometer/last', authMiddleware, (req, res) => {
-  const row = db.prepare('SELECT odometer FROM records WHERE odometer IS NOT NULL AND odometer != "" ORDER BY id DESC LIMIT 1').get();
-  res.json({ lastOdometer: row ? row.odometer : '' });
+  try {
+    const row = db.prepare(`
+      SELECT odometer FROM records 
+      WHERE odometer IS NOT NULL 
+        AND odometer != '' 
+        AND CAST(odometer AS INTEGER) > 0 
+      ORDER BY id DESC 
+      LIMIT 1
+    `).get();
+    res.json({ lastOdometer: row ? row.odometer : '' });
+  } catch (err) {
+    res.json({ lastOdometer: '' });
+  }
 });
 
 // 4. Додавання одного запису
 app.post('/api/records', authMiddleware, (req, res) => {
   const { date, time, odometer, action, location, comment, coords } = req.body;
   try {
+    const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Number(odometer) : null;
     const stmt = db.prepare(`
       INSERT INTO records (date, time, odometer, action, location, comment, coords)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const info = stmt.run(date, time, odometer ? Number(odometer) : null, action, location, comment, coords);
+    const info = stmt.run(date, time, odoNum, action, location, comment, coords);
     res.json({ success: true, id: info.lastInsertRowid });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 5. Розумний парсер для вставки з Excel / Google Sheets
+// 5. Парсер TSV з лапками для імпорту
 function parseTSV(text) {
   const rows = [];
   let currentRow = [];
@@ -133,7 +141,7 @@ function parseTSV(text) {
   return rows;
 }
 
-// 6. Масовий імпорт з тексту (Excel / Google Sheets)
+// 6. Масовий імпорт
 app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
   const { rawText } = req.body;
   if (!rawText) return res.status(400).json({ error: 'Текст для імпорту порожній' });
@@ -149,7 +157,7 @@ app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
     const insertTx = db.transaction(() => {
       for (const col of rows) {
         if (!col || col.length < 3) continue;
-        if (col[0].toLowerCase().includes('дата')) continue; // Пропускаємо заголовок
+        if (col[0].toLowerCase().includes('дата')) continue;
 
         let d = col[0] ? col[0].trim() : '';
         if (d.includes('.')) {
@@ -177,7 +185,7 @@ app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
   }
 });
 
-// 7. Таблиця (пагінація: LIMIT & OFFSET)
+// 7. Таблиця (Пагінація)
 app.get('/api/records', authMiddleware, (req, res) => {
   const limit = parseInt(req.query.limit) || 30;
   const offset = parseInt(req.query.offset) || 0;
@@ -193,18 +201,33 @@ app.put('/api/records/:id', authMiddleware, (req, res) => {
   const { id } = req.params;
   const { date, time, odometer, action, location, comment } = req.body;
   try {
+    const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Number(odometer) : null;
     db.prepare(`
       UPDATE records 
       SET date = ?, time = ?, odometer = ?, action = ?, location = ?, comment = ?
       WHERE id = ?
-    `).run(date, time, odometer ? Number(odometer) : null, action, location, comment, id);
+    `).run(date, time, odoNum, action, location, comment, id);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 9. Отримання всіх записів для Звіту
+// 9. ВИДАЛЕННЯ ЗАПИСУ
+app.delete('/api/records/:id', authMiddleware, (req, res) => {
+  try {
+    const info = db.prepare('DELETE FROM records WHERE id = ?').run(req.params.id);
+    if (info.changes > 0) {
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ error: 'Запис не знайдено' });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 10. Всі записи для Звіту
 app.get('/api/records/all', authMiddleware, (req, res) => {
   const records = db.prepare('SELECT * FROM records ORDER BY id ASC').all();
   res.json(records);

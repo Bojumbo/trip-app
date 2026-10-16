@@ -20,8 +20,15 @@
       --success: #16a34a;
       --warning: #d97706;
       --danger: #dc2626;
+      --danger-hover: #b91c1c;
       --card-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
       --input-bg: #ffffff;
+      --badge-closed-bg: #dcfce7;
+      --badge-closed-text: #15803d;
+      --badge-open-bg: #fef3c7;
+      --badge-open-text: #b45309;
+      --badge-day-bg: #e2e8f0;
+      --badge-day-text: #475569;
     }
     [data-theme="dark"] {
       --bg: #0b1120;
@@ -33,6 +40,12 @@
       --primary: #3b82f6;
       --input-bg: #0f172a;
       --card-shadow: 0 4px 10px rgba(0,0,0,0.3);
+      --badge-closed-bg: #14532d;
+      --badge-closed-text: #bbf7d0;
+      --badge-open-bg: #78350f;
+      --badge-open-text: #fef3c7;
+      --badge-day-bg: #334155;
+      --badge-day-text: #cbd5e1;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -88,6 +101,8 @@
     }
     .btn-primary { background: var(--primary); color: white; }
     .btn-secondary { background: var(--surface-sec); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: var(--danger); color: white; }
+    .btn-danger:hover { background: var(--danger-hover); }
 
     .geo-status-box {
       background: var(--surface-sec); padding: 10px; border-radius: 10px; border: 1px solid var(--border);
@@ -112,9 +127,11 @@
     .shift-header { padding: 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
     .shift-body { display: none; padding: 0 16px 16px; border-top: 1px dashed var(--border); }
     .shift-card.expanded .shift-body { display: block; }
+    
     .badge { padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
-    .badge-closed { background: #dcfce7; color: #15803d; }
-    .badge-open { background: #fef3c7; color: #b45309; }
+    .badge-closed { background: var(--badge-closed-bg); color: var(--badge-closed-text); }
+    .badge-open { background: var(--badge-open-bg); color: var(--badge-open-text); }
+    .badge-day { background: var(--badge-day-bg); color: var(--badge-day-text); }
 
     .modal {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -180,7 +197,7 @@
             <div class="field-wrap">
               <div style="display: flex; justify-content: space-between;">
                 <label>Одометр (км)</label>
-                <span id="lastOdoHint" style="font-size:0.75rem; color:var(--primary);"></span>
+                <span id="lastOdoHint" style="font-size:0.75rem; color:var(--primary); font-weight: 600;"></span>
               </div>
               <input type="number" id="odometer" placeholder="Завантаження..." inputmode="numeric">
             </div>
@@ -237,14 +254,13 @@
                 <th>Локація</th>
                 <th>Коментар</th>
                 <th>GPS</th>
-                <th>Дія</th>
+                <th style="min-width: 90px;">Дії</th>
               </tr>
             </thead>
             <tbody id="tableBody"></tbody>
           </table>
         </div>
 
-        <!-- Кнопки довантаження 30 / 50 / 100 -->
         <div id="loadMoreSection" style="margin-top: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
           <div style="font-size: 0.9rem; color: var(--text-muted);" id="tableLoadedStatus"></div>
           <div style="display: flex; gap: 8px;">
@@ -258,7 +274,7 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНЕ ВІКНО: ІМПОРТ З EXCEL / GOOGLE SHEETS -->
+  <!-- МОДАЛЬНЕ ВІКНО: ІМПОРТ -->
   <div id="importModal" class="modal">
     <div class="modal-content">
       <h3 style="margin-bottom: 8px;">📥 Імпорт з Google Таблиць / Excel</h3>
@@ -273,7 +289,7 @@
     </div>
   </div>
 
-  <!-- МОДАЛЬНЕ ВІКНО: РЕДАГУВАННЯ ЗАПИСУ -->
+  <!-- МОДАЛЬНЕ ВІКНО: РЕДАГУВАННЯ ТА ВИДАЛЕННЯ -->
   <div id="editModal" class="modal">
     <div class="modal-content">
       <h3 style="margin-bottom: 15px;">✏️ Редагування запису</h3>
@@ -304,9 +320,12 @@
           <textarea id="editComment" rows="3"></textarea>
         </div>
       </div>
-      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
-        <button class="btn btn-secondary" onclick="closeEditModal()">Скасувати</button>
-        <button class="btn btn-primary" onclick="saveEdit()">Зберегти зміни</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
+        <button class="btn btn-danger" onclick="deleteFromModal()">🗑️ Видалити</button>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn btn-secondary" onclick="closeEditModal()">Скасувати</button>
+          <button class="btn btn-primary" onclick="saveEdit()">Зберегти</button>
+        </div>
       </div>
     </div>
   </div>
@@ -318,7 +337,6 @@
     let totalRecords = 0;
     let actionsList = [];
 
-    // ================= АВТОРИЗАЦІЯ =================
     async function handleLogin() {
       const pwd = document.getElementById('loginPassword').value;
       const res = await fetch('/api/login', {
@@ -356,7 +374,6 @@
       };
     }
 
-    // ================= ІНІЦІАЛІЗАЦІЯ =================
     function initApp() {
       initTheme();
       setNowDateTime();
@@ -419,17 +436,23 @@
       });
     }
 
+    // Автопідтягування останнього заповненого одометра
     async function loadLastOdometer() {
-      const res = await fetch('/api/odometer/last', { headers: authHeaders() });
-      const data = await res.json();
-      const inp = document.getElementById('odometer');
-      const hint = document.getElementById('lastOdoHint');
-      if (data.lastOdometer) {
-        inp.value = data.lastOdometer;
-        hint.innerText = `Попередній: ${data.lastOdometer} км`;
-      } else {
-        inp.placeholder = 'напр. 154320';
-        hint.innerText = '';
+      try {
+        const res = await fetch('/api/odometer/last', { headers: authHeaders() });
+        const data = await res.json();
+        const inp = document.getElementById('odometer');
+        const hint = document.getElementById('lastOdoHint');
+        if (data.lastOdometer) {
+          inp.value = data.lastOdometer;
+          hint.innerText = `Попередній: ${data.lastOdometer} км`;
+        } else {
+          inp.value = '';
+          inp.placeholder = 'напр. 154320';
+          hint.innerText = '';
+        }
+      } catch (e) {
+        console.error('Помилка одометра', e);
       }
     }
 
@@ -438,12 +461,12 @@
         document.getElementById(`tab${capitalize(x)}`).style.display = (x === t ? 'block' : 'none');
         document.getElementById(`tab${capitalize(x)}Btn`).classList.toggle('active', x === t);
       });
+      if (t === 'form') loadLastOdometer();
       if (t === 'report') loadShiftsReport();
       if (t === 'table') reloadTable(true);
     }
     function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-    // Відправка форми
     document.getElementById('tripForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const btn = document.getElementById('submitBtn');
@@ -473,7 +496,7 @@
         msg.innerText = 'Запис успішно збережено в базі!';
         msg.style.display = 'block';
         document.getElementById('comment').value = '';
-        if (payload.odometer) loadLastOdometer();
+        loadLastOdometer();
         setNowDateTime();
         fetchGPS();
       } else {
@@ -483,7 +506,6 @@
       }
     });
 
-    // ================= ТАБЛИЦЯ ТА ПАГІНАЦІЯ =================
     async function reloadTable(reset = true) {
       if (reset) {
         currentOffset = 0;
@@ -516,7 +538,10 @@
                 : '-'}
             </td>
             <td>
-              <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick='openEditModal(${JSON.stringify(r)})'>✏️</button>
+              <div style="display:flex; gap:4px;">
+                <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick='openEditModal(${JSON.stringify(r)})' title="Редагувати">✏️</button>
+                <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem; color:var(--danger);" onclick="deleteRecord(${r.id})" title="Видалити">🗑️</button>
+              </div>
             </td>
           </tr>
         `;
@@ -560,10 +585,37 @@
       if (data.success) {
         closeEditModal();
         reloadTable(true);
+        loadLastOdometer();
       }
     }
 
-    // ================= МОДАЛКА ІМПОРТУ З EXCEL / SHEETS =================
+    // ФУНКЦІЯ ВИДАЛЕННЯ
+    async function deleteRecord(id) {
+      if (!confirm(`Ви дійсно бажаєте видалити запис #${id}?`)) return;
+
+      const res = await fetch(`/api/records/${id}`, {
+        method: 'DELETE',
+        headers: authHeaders()
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        reloadTable(true);
+        loadLastOdometer();
+      } else {
+        alert('Помилка видалення: ' + data.error);
+      }
+    }
+
+    async function deleteFromModal() {
+      const id = document.getElementById('editId').value;
+      if (id) {
+        closeEditModal();
+        await deleteRecord(id);
+      }
+    }
+
+    // Імпорт
     function openImportModal() {
       document.getElementById('importModal').style.display = 'flex';
       document.getElementById('importRawText').focus();
@@ -601,7 +653,7 @@
       }
     }
 
-    // ================= ЗВІТ ПО ЗМІНАХ =================
+    // Звіт по змінах та днях
     async function loadShiftsReport() {
       const container = document.getElementById('shiftsContainer');
       container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Завантаження звіту...</div>';
@@ -612,85 +664,40 @@
     }
 
     function groupIntoShifts(records) {
-      const shifts = [];
+      const items = [];
       let currentShift = null;
 
+      function addStandalone(r) {
+        const existing = items.find(it => it.type === 'day' && it.date === r.date);
+        if (existing) {
+          existing.events.push(r);
+        } else {
+          items.push({
+            type: 'day',
+            date: r.date,
+            events: [r]
+          });
+        }
+      }
+
       records.forEach(r => {
-        const act = r.action.toLowerCase();
+        const act = (r.action || '').toLowerCase();
+        
         if (act.includes('відкрив зміну')) {
-          if (currentShift) shifts.push(currentShift);
-          currentShift = { open: r, close: null, events: [r] };
+          if (currentShift) items.push(currentShift);
+          currentShift = { type: 'shift', open: r, close: null, events: [r] };
         } else if (act.includes('закрив зміну')) {
           if (currentShift) {
             currentShift.close = r;
             currentShift.events.push(r);
-            shifts.push(currentShift);
+            items.push(currentShift);
             currentShift = null;
           } else {
-            shifts.push({ open: null, close: r, events: [r] });
+            addStandalone(r);
           }
         } else {
-          if (currentShift) currentShift.events.push(r);
-          else shifts.push({ open: null, close: null, events: [r] });
-        }
-      });
-      if (currentShift) shifts.push(currentShift);
-      return shifts.reverse();
-    }
-
-    function renderShifts(shifts) {
-      const container = document.getElementById('shiftsContainer');
-      if (shifts.length === 0) {
-        container.innerHTML = '<div style="text-align: center; padding: 40px;">Записів ще немає</div>';
-        return;
-      }
-      let html = '';
-      shifts.forEach((shift, idx) => {
-        const isOpen = shift.open !== null;
-        const isClosed = shift.close !== null;
-        let title = 'Зміна';
-        let badgeClass = 'badge-closed';
-        let badgeText = 'Закрита';
-        let odoDiff = '';
-
-        if (isOpen && isClosed) {
-          title = `${shift.open.date} (${shift.open.time} - ${shift.close.time})`;
-          if (shift.open.odometer && shift.close.odometer) {
-            const diff = Number(shift.close.odometer) - Number(shift.open.odometer);
-            if (!isNaN(diff)) odoDiff = `| Пробіг: <b>${diff} км</b>`;
+          if (currentShift) {
+            currentShift.events.push(r);
+          } else {
+            addStandalone(r);
           }
-        } else if (isOpen && !isClosed) {
-          title = `Зміна від ${shift.open.date} ${shift.open.time}`;
-          badgeClass = 'badge-open';
-          badgeText = 'В процесі ⏳';
-        }
-
-        html += `
-          <div class="shift-card" id="shift_${idx}">
-            <div class="shift-header" onclick="document.getElementById('shift_${idx}').classList.toggle('expanded')">
-              <div>
-                <strong>${title}</strong> <span class="badge ${badgeClass}">${badgeText}</span>
-                <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
-                  Записів: ${shift.events.length} ${odoDiff}
-                </div>
-              </div>
-              <div>▼</div>
-            </div>
-            <div class="shift-body">
-              ${shift.events.map(ev => `
-                <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem;">
-                  <b>${ev.action}</b> (${ev.time}) — ${ev.odometer ? ev.odometer + ' км' : ''} ${ev.location ? '| ' + ev.location : ''}
-                  ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.85rem; white-space:pre-line;">${ev.comment}</div>` : ''}
-                </div>
-              `).join('')}
-            </div>
-          </div>
-        `;
-      });
-      container.innerHTML = html;
-    }
-
-    if (token) showApp();
-  </script>
-</body>
-</html>
