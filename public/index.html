@@ -38,7 +38,6 @@
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     body { background-color: var(--bg); color: var(--text); min-height: 100vh; padding-bottom: 50px; }
 
-    /* Login Screen */
     #loginScreen {
       display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px;
     }
@@ -47,7 +46,6 @@
       width: 100%; max-width: 380px; box-shadow: var(--card-shadow); text-align: center;
     }
 
-    /* Навігація */
     .header-bar {
       position: sticky; top: 0; z-index: 100; background: var(--surface);
       border-bottom: 1px solid var(--border); box-shadow: var(--card-shadow);
@@ -69,7 +67,6 @@
       box-shadow: var(--card-shadow); border: 1px solid var(--border);
     }
 
-    /* Форми */
     .form-grid { display: grid; grid-template-columns: 1fr; gap: 14px; }
     @media (min-width: 640px) { .form-grid { grid-template-columns: 1fr 1fr; } }
     .col-span-2 { grid-column: span 1; }
@@ -86,10 +83,10 @@
 
     .btn {
       display: inline-flex; justify-content: center; align-items: center; gap: 6px;
-      padding: 12px 18px; font-size: 1rem; font-weight: 600; border-radius: 10px;
+      padding: 12px 18px; font-size: 0.95rem; font-weight: 600; border-radius: 10px;
       border: none; cursor: pointer; transition: 0.2s;
     }
-    .btn-primary { background: var(--primary); color: white; width: 100%; }
+    .btn-primary { background: var(--primary); color: white; }
     .btn-secondary { background: var(--surface-sec); color: var(--text); border: 1px solid var(--border); }
 
     .geo-status-box {
@@ -99,17 +96,15 @@
     .dot { width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; }
     .dot.active { background: var(--success); }
 
-    /* Таблиця Excel */
     .table-container {
       width: 100%; overflow-x: auto; background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; margin-top: 15px;
     }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; min-width: 800px; }
-    th, td { padding: 12px; border-bottom: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; min-width: 850px; }
+    th, td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
     th { background: var(--surface-sec); font-weight: 600; color: var(--text-muted); }
     tr:hover { background: rgba(37,99,235,0.03); }
 
-    /* Звіт по змінах */
     .shift-card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
       margin-bottom: 12px; overflow: hidden;
@@ -121,14 +116,13 @@
     .badge-closed { background: #dcfce7; color: #15803d; }
     .badge-open { background: #fef3c7; color: #b45309; }
 
-    /* Модальне вікно редагування */
     .modal {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
       z-index: 200; justify-content: center; align-items: center; padding: 15px;
     }
     .modal-content {
-      background: var(--surface); width: 100%; max-width: 500px; border-radius: 16px;
-      padding: 20px; box-shadow: var(--card-shadow);
+      background: var(--surface); width: 100%; max-width: 580px; border-radius: 16px;
+      padding: 24px; box-shadow: var(--card-shadow); max-height: 90vh; overflow-y: auto;
     }
 
     .toast { padding: 12px; border-radius: 10px; text-align: center; margin-top: 14px; font-weight: 500; display: none; }
@@ -143,12 +137,12 @@
     <div class="login-card">
       <h2 style="margin-bottom: 20px;">Вхід в систему</h2>
       <input type="password" id="loginPassword" placeholder="Введіть пароль" style="margin-bottom: 15px;">
-      <button class="btn btn-primary" onclick="handleLogin()">Увійти</button>
+      <button class="btn btn-primary" style="width: 100%;" onclick="handleLogin()">Увійти</button>
       <div id="loginError" style="color: var(--danger); font-size: 0.85rem; margin-top: 10px; display: none;"></div>
     </div>
   </div>
 
-  <!-- 2. Основна система (після авторизації) -->
+  <!-- 2. Головний екран системи -->
   <div id="appScreen" style="display: none;">
     <header class="header-bar">
       <div class="header-container">
@@ -192,7 +186,7 @@
             </div>
             <div class="field-wrap col-span-2">
               <label>Локація (місто/склад)</label>
-              <input type="text" id="location" placeholder="напр. Львів, РЦ-1">
+              <input type="text" id="location" placeholder="напр. База або Львів">
             </div>
             <div class="field-wrap col-span-2">
               <label>Коментар</label>
@@ -207,7 +201,7 @@
               <input type="hidden" id="coords">
             </div>
             <div class="col-span-2">
-              <button type="submit" id="submitBtn" class="btn btn-primary">Зберегти в базу</button>
+              <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%;">Зберегти в базу</button>
             </div>
           </div>
         </form>
@@ -223,9 +217,12 @@
 
       <!-- ВКЛАДКА 3: ТАБЛИЦЯ EXCEL -->
       <div id="tabTable" style="display: none;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
           <div>Всього записів у базі: <strong id="totalRecordsCount">0</strong></div>
-          <button class="btn btn-secondary" onclick="reloadTable(true)">🔄 Оновити</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" onclick="openImportModal()">📥 Імпорт з таблиці</button>
+            <button class="btn btn-secondary" onclick="reloadTable(true)">🔄 Оновити</button>
+          </div>
         </div>
 
         <div class="table-container">
@@ -247,7 +244,7 @@
           </table>
         </div>
 
-        <!-- Кнопки підгрузки: 30 / 50 / 100 -->
+        <!-- Кнопки довантаження 30 / 50 / 100 -->
         <div id="loadMoreSection" style="margin-top: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
           <div style="font-size: 0.9rem; color: var(--text-muted);" id="tableLoadedStatus"></div>
           <div style="display: flex; gap: 8px;">
@@ -261,10 +258,25 @@
     </div>
   </div>
 
-  <!-- Модальне вікно редагування запису -->
+  <!-- МОДАЛЬНЕ ВІКНО: ІМПОРТ З EXCEL / GOOGLE SHEETS -->
+  <div id="importModal" class="modal">
+    <div class="modal-content">
+      <h3 style="margin-bottom: 8px;">📥 Імпорт з Google Таблиць / Excel</h3>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 14px;">
+        Виділіть і скопіюйте рядки в таблиці (<kbd>Ctrl+C</kbd>), потім вставте сюди в поле (<kbd>Ctrl+V</kbd>):
+      </p>
+      <textarea id="importRawText" rows="10" placeholder="Вставте рядки з таблиці сюди..."></textarea>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
+        <button class="btn btn-secondary" onclick="closeImportModal()">Скасувати</button>
+        <button class="btn btn-primary" id="importBtn" onclick="sendBulkImport()">Завантажити в базу</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНЕ ВІКНО: РЕДАГУВАННЯ ЗАПИСУ -->
   <div id="editModal" class="modal">
     <div class="modal-content">
-      <h3 style="margin-bottom: 15px;">Редагування запису</h3>
+      <h3 style="margin-bottom: 15px;">✏️ Редагування запису</h3>
       <input type="hidden" id="editId">
       <div class="form-grid">
         <div class="field-wrap">
@@ -289,12 +301,12 @@
         </div>
         <div class="field-wrap col-span-2">
           <label>Коментар</label>
-          <textarea id="editComment" rows="2"></textarea>
+          <textarea id="editComment" rows="3"></textarea>
         </div>
       </div>
-      <div style="display: flex; gap: 10px; margin-top: 15px;">
-        <button class="btn btn-primary" onclick="saveEdit()">Зберегти зміни</button>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
         <button class="btn btn-secondary" onclick="closeEditModal()">Скасувати</button>
+        <button class="btn btn-primary" onclick="saveEdit()">Зберегти зміни</button>
       </div>
     </div>
   </div>
@@ -337,6 +349,13 @@
       initApp();
     }
 
+    function authHeaders() {
+      return {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + token
+      };
+    }
+
     // ================= ІНІЦІАЛІЗАЦІЯ =================
     function initApp() {
       initTheme();
@@ -346,14 +365,6 @@
       loadLastOdometer();
     }
 
-    function authHeaders() {
-      return {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + token
-      };
-    }
-
-    // Теми
     function initTheme() {
       const saved = localStorage.getItem('app_theme') || 'light';
       setTheme(saved);
@@ -368,7 +379,6 @@
       document.getElementById('themeBtn').innerText = t === 'dark' ? '☀️' : '🌙';
     }
 
-    // Дата й час
     function setNowDateTime() {
       const now = new Date();
       const y = now.getFullYear();
@@ -378,7 +388,6 @@
       document.getElementById('timeInput').value = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     }
 
-    // GPS
     function fetchGPS() {
       const txt = document.getElementById('geoStatusText');
       const dot = document.getElementById('geoDot');
@@ -390,12 +399,11 @@
           txt.innerText = `GPS: ${userCoords}`;
           dot.className = 'dot active';
         },
-        (err) => { txt.innerText = 'GPS помилка: ' + err.message; },
+        (err) => { txt.innerText = 'GPS: ' + err.message; },
         { enableHighAccuracy: true, timeout: 10000 }
       );
     }
 
-    // Завантаження дій
     async function loadActions() {
       const res = await fetch('/api/actions', { headers: authHeaders() });
       if (res.status === 401) return handleLogout();
@@ -411,7 +419,6 @@
       });
     }
 
-    // Одометр
     async function loadLastOdometer() {
       const res = await fetch('/api/odometer/last', { headers: authHeaders() });
       const data = await res.json();
@@ -426,14 +433,13 @@
       }
     }
 
-    // Перемикання вкладок
     function switchTab(t) {
       ['form', 'report', 'table'].forEach(x => {
         document.getElementById(`tab${capitalize(x)}`).style.display = (x === t ? 'block' : 'none');
         document.getElementById(`tab${capitalize(x)}Btn`).classList.toggle('active', x === t);
       });
       if (t === 'report') loadShiftsReport();
-      if (t === 'table') reloadTable();
+      if (t === 'table') reloadTable(true);
     }
     function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
@@ -464,7 +470,7 @@
 
       if (data.success) {
         msg.className = 'toast success';
-        msg.innerText = 'Запис успішно додано в базу!';
+        msg.innerText = 'Запис успішно збережено в базі!';
         msg.style.display = 'block';
         document.getElementById('comment').value = '';
         if (payload.odometer) loadLastOdometer();
@@ -477,7 +483,7 @@
       }
     });
 
-    // ================= ТАБЛИЦЯ (EXCEL РЕЖИМ З ПАГІНАЦІЄЮ) =================
+    // ================= ТАБЛИЦЯ ТА ПАГІНАЦІЯ =================
     async function reloadTable(reset = true) {
       if (reset) {
         currentOffset = 0;
@@ -503,7 +509,7 @@
             <td>${r.odometer ? r.odometer + ' км' : '-'}</td>
             <td><span style="font-weight:600; color:var(--primary);">${r.action}</span></td>
             <td>${r.location || '-'}</td>
-            <td>${r.comment || '-'}</td>
+            <td style="white-space: pre-line;">${r.comment || '-'}</td>
             <td>
               ${r.coords && r.coords.includes(',') 
                 ? `<a href="https://www.google.com/maps?q=${r.coords}" target="_blank" style="color:var(--primary); text-decoration:none;">🗺️ GPS</a>` 
@@ -554,6 +560,44 @@
       if (data.success) {
         closeEditModal();
         reloadTable(true);
+      }
+    }
+
+    // ================= МОДАЛКА ІМПОРТУ З EXCEL / SHEETS =================
+    function openImportModal() {
+      document.getElementById('importModal').style.display = 'flex';
+      document.getElementById('importRawText').focus();
+    }
+    function closeImportModal() {
+      document.getElementById('importModal').style.display = 'none';
+      document.getElementById('importRawText').value = '';
+    }
+
+    async function sendBulkImport() {
+      const text = document.getElementById('importRawText').value;
+      if (!text.trim()) { alert('Будь ласка, вставте текст із таблиці'); return; }
+
+      const btn = document.getElementById('importBtn');
+      btn.disabled = true;
+      btn.innerText = 'Імпортування...';
+
+      const res = await fetch('/api/records/bulk-import', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ rawText: text })
+      });
+      const data = await res.json();
+
+      btn.disabled = false;
+      btn.innerText = 'Завантажити в базу';
+
+      if (data.success) {
+        alert(`✅ Успішно додано ${data.count} записів!`);
+        closeImportModal();
+        reloadTable(true);
+        loadLastOdometer();
+      } else {
+        alert('❌ Помилка: ' + data.error);
       }
     }
 
@@ -636,7 +680,7 @@
               ${shift.events.map(ev => `
                 <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem;">
                   <b>${ev.action}</b> (${ev.time}) — ${ev.odometer ? ev.odometer + ' км' : ''} ${ev.location ? '| ' + ev.location : ''}
-                  ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.85rem;">${ev.comment}</div>` : ''}
+                  ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.85rem; white-space:pre-line;">${ev.comment}</div>` : ''}
                 </div>
               `).join('')}
             </div>
@@ -646,7 +690,6 @@
       container.innerHTML = html;
     }
 
-    // Перевірка сесії при старті
     if (token) showApp();
   </script>
 </body>
