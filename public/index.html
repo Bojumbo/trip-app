@@ -19,7 +19,11 @@
       --primary: #2563eb;
       --primary-hover: #1d4ed8;
       --success: #16a34a;
+      --success-bg: #dcfce7;
+      --success-text: #15803d;
       --warning: #d97706;
+      --warning-bg: #fef3c7;
+      --warning-text: #b45309;
       --danger: #dc2626;
       --danger-hover: #b91c1c;
       --card-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
@@ -47,6 +51,10 @@
       --badge-open-text: #fef3c7;
       --badge-day-bg: #334155;
       --badge-day-text: #cbd5e1;
+      --success-bg: #14532d;
+      --success-text: #86efac;
+      --warning-bg: #78350f;
+      --warning-text: #fde68a;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
@@ -95,15 +103,39 @@
     }
     input:focus, select:focus, textarea:focus { border-color: var(--primary); outline: none; }
 
+    .checkbox-wrap {
+      display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+      background: var(--surface-sec); border: 1px solid var(--border); border-radius: 10px; cursor: pointer;
+    }
+    .checkbox-wrap input[type="checkbox"] { width: 20px; height: 20px; cursor: pointer; margin: 0; }
+    .checkbox-wrap span { font-size: 0.95rem; font-weight: 600; }
+
     .btn {
       display: inline-flex; justify-content: center; align-items: center; gap: 6px;
-      padding: 12px 18px; font-size: 0.95rem; font-weight: 600; border-radius: 10px;
-      border: none; cursor: pointer; transition: 0.2s;
+      padding: 10px 16px; font-size: 0.9rem; font-weight: 600; border-radius: 10px;
+      border: none; cursor: pointer; transition: 0.15s ease-in-out; text-decoration: none;
     }
+    .btn:active { transform: scale(0.98); }
     .btn-primary { background: var(--primary); color: white; }
     .btn-secondary { background: var(--surface-sec); color: var(--text); border: 1px solid var(--border); }
     .btn-danger { background: var(--danger); color: white; }
     .btn-danger:hover { background: var(--danger-hover); }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px;
+      font-size: 0.75rem; font-weight: 700; white-space: nowrap;
+    }
+    .badge-closed { background: var(--badge-closed-bg); color: var(--badge-closed-text); }
+    .badge-open { background: var(--badge-open-bg); color: var(--badge-open-text); }
+    .badge-day { background: var(--badge-day-bg); color: var(--badge-day-text); }
+    .badge-reported-yes { background: var(--success-bg); color: var(--success-text); }
+    .badge-reported-no { background: var(--warning-bg); color: var(--warning-text); }
+
+    .btn-report-toggle {
+      border: 1px solid transparent; cursor: pointer; font-size: 0.8rem; padding: 4px 8px; border-radius: 6px; font-weight: 600;
+      transition: opacity 0.15s;
+    }
+    .btn-report-toggle:hover { opacity: 0.85; }
 
     .geo-status-box {
       background: var(--surface-sec); padding: 10px; border-radius: 10px; border: 1px solid var(--border);
@@ -116,23 +148,27 @@
       width: 100%; overflow-x: auto; background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; margin-top: 15px;
     }
-    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; min-width: 850px; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9rem; min-width: 960px; }
     th, td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
     th { background: var(--surface-sec); font-weight: 600; color: var(--text-muted); }
     tr:hover { background: rgba(37,99,235,0.03); }
 
     .shift-card {
       background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-      margin-bottom: 12px; overflow: hidden;
+      margin-bottom: 14px; overflow: hidden; box-shadow: var(--card-shadow);
     }
-    .shift-header { padding: 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
-    .shift-body { display: none; padding: 0 16px 16px; border-top: 1px dashed var(--border); }
+    .shift-header {
+      padding: 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 12px;
+      background: var(--surface);
+    }
+    .shift-header:hover { background: var(--surface-sec); }
+    .shift-body { display: none; padding: 12px 16px 16px; border-top: 1px dashed var(--border); }
     .shift-card.expanded .shift-body { display: block; }
     
-    .badge { padding: 3px 8px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; }
-    .badge-closed { background: var(--badge-closed-bg); color: var(--badge-closed-text); }
-    .badge-open { background: var(--badge-open-bg); color: var(--badge-open-text); }
-    .badge-day { background: var(--badge-day-bg); color: var(--badge-day-text); }
+    .shift-bulk-actions {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px;
+      padding-bottom: 10px; border-bottom: 1px solid var(--border); flex-wrap: wrap;
+    }
 
     .modal {
       display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -153,12 +189,13 @@
   <!-- 1. Екран Входу -->
   <div id="loginScreen">
     <div class="login-card">
-      <h2 style="margin-bottom: 20px;">Вхід в систему</h2>
+      <h2 style="margin-bottom: 8px;">Вхід в систему</h2>
+      <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">Система обліку рейсів та змін</p>
       <form id="loginForm" onsubmit="event.preventDefault(); handleLogin();">
         <input type="password" id="loginPassword" placeholder="Введіть пароль" autocomplete="current-password" style="margin-bottom: 15px;" required>
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Увійти</button>
+        <button type="submit" id="loginBtn" class="btn btn-primary" style="width: 100%;">Увійти</button>
       </form>
-      <div id="loginError" style="color: var(--danger); font-size: 0.85rem; margin-top: 10px; display: none;"></div>
+      <div id="loginError" style="color: var(--danger); font-size: 0.85rem; margin-top: 12px; display: none;"></div>
     </div>
   </div>
 
@@ -206,11 +243,11 @@
             </div>
             <div class="field-wrap col-span-2">
               <label>Локація (місто/склад)</label>
-              <input type="text" id="location" placeholder="напр. База або Львів">
+              <input type="text" id="location" placeholder="напр. База або Львів" maxlength="255">
             </div>
             <div class="field-wrap col-span-2">
               <label>Коментар</label>
-              <textarea id="comment" rows="2" placeholder="За потреби..."></textarea>
+              <textarea id="comment" rows="2" placeholder="За потреби..." maxlength="2000"></textarea>
             </div>
             <div class="field-wrap col-span-2">
               <label>Геолокація GPS</label>
@@ -219,6 +256,12 @@
                 <div id="geoDot" class="dot"></div>
               </div>
               <input type="hidden" id="coords">
+            </div>
+            <div class="field-wrap col-span-2">
+              <label class="checkbox-wrap">
+                <input type="checkbox" id="formIsReported">
+                <span>Звіт здано (Так / Ні)</span>
+              </label>
             </div>
             <div class="col-span-2">
               <button type="submit" id="submitBtn" class="btn btn-primary" style="width: 100%;">Зберегти в базу</button>
@@ -230,6 +273,10 @@
 
       <!-- ВКЛАДКА 2: ЗВІТ ПО ЗМІНАХ -->
       <div id="tabReport" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+          <h2 style="font-size: 1.25rem;">Звіт по змінах та рейсах</h2>
+          <button class="btn btn-secondary" onclick="loadShiftsReport()">🔄 Оновити звіт</button>
+        </div>
         <div id="shiftsContainer">
           <div style="text-align: center; padding: 40px; color: var(--text-muted);">Завантаження...</div>
         </div>
@@ -239,7 +286,8 @@
       <div id="tabTable" style="display: none;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
           <div>Всього записів у базі: <strong id="totalRecordsCount">0</strong></div>
-          <div style="display: flex; gap: 8px;">
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn btn-secondary" onclick="exportToCSV()">📤 Експорт у CSV</button>
             <button class="btn btn-secondary" onclick="openImportModal()">📥 Імпорт з таблиці</button>
             <button class="btn btn-secondary" onclick="reloadTable(true)">🔄 Оновити</button>
           </div>
@@ -257,6 +305,7 @@
                 <th>Локація</th>
                 <th>Коментар</th>
                 <th>GPS</th>
+                <th>Звіт здано</th>
                 <th style="min-width: 90px;">Дії</th>
               </tr>
             </thead>
@@ -282,7 +331,7 @@
     <div class="modal-content">
       <h3 style="margin-bottom: 8px;">📥 Імпорт з Google Таблиць / Excel</h3>
       <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 14px;">
-        Виділіть і скопіюйте рядки в таблиці (<kbd>Ctrl+C</kbd>), потім вставте сюди в поле (<kbd>Ctrl+V</kbd>):
+        Виділіть і скопіюйте рядки в таблиці (<kbd>Ctrl+C</kbd>), потім вставте сюди (<kbd>Ctrl+V</kbd>):
       </p>
       <textarea id="importRawText" rows="10" placeholder="Вставте рядки з таблиці сюди..."></textarea>
       <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px;">
@@ -300,11 +349,11 @@
       <div class="form-grid">
         <div class="field-wrap">
           <label>Дата</label>
-          <input type="date" id="editDate">
+          <input type="date" id="editDate" required>
         </div>
         <div class="field-wrap">
           <label>Час</label>
-          <input type="time" id="editTime">
+          <input type="time" id="editTime" required>
         </div>
         <div class="field-wrap">
           <label>Одометр</label>
@@ -312,15 +361,21 @@
         </div>
         <div class="field-wrap">
           <label>Дія</label>
-          <select id="editAction"></select>
+          <select id="editAction" required></select>
         </div>
         <div class="field-wrap col-span-2">
           <label>Локація</label>
-          <input type="text" id="editLocation">
+          <input type="text" id="editLocation" maxlength="255">
         </div>
         <div class="field-wrap col-span-2">
           <label>Коментар</label>
-          <textarea id="editComment" rows="3"></textarea>
+          <textarea id="editComment" rows="3" maxlength="2000"></textarea>
+        </div>
+        <div class="field-wrap col-span-2">
+          <label class="checkbox-wrap">
+            <input type="checkbox" id="editIsReported">
+            <span>Звіт здано (Так / Ні)</span>
+          </label>
         </div>
       </div>
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;">
@@ -339,10 +394,23 @@
     let currentOffset = 0;
     let totalRecords = 0;
     let actionsList = [];
+    const recordsCache = new Map(); // Кеш записів за ID для запобігання XSS та помилок розриву лапок
+
+    // Безпечне екранування тексту проти XSS
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
 
     async function handleLogin() {
       const pwdInput = document.getElementById('loginPassword');
       const errDiv = document.getElementById('loginError');
+      const loginBtn = document.getElementById('loginBtn');
       errDiv.style.display = 'none';
 
       const pwd = pwdInput ? pwdInput.value.trim() : '';
@@ -352,6 +420,9 @@
         return;
       }
 
+      loginBtn.disabled = true;
+      loginBtn.innerText = 'Вхід...';
+
       try {
         const res = await fetch('/api/login', {
           method: 'POST',
@@ -359,6 +430,9 @@
           body: JSON.stringify({ password: pwd })
         });
         const data = await res.json();
+        loginBtn.disabled = false;
+        loginBtn.innerText = 'Увійти';
+
         if (data.success) {
           localStorage.setItem('trip_token', data.token);
           token = data.token;
@@ -368,6 +442,8 @@
           errDiv.style.display = 'block';
         }
       } catch (err) {
+        loginBtn.disabled = false;
+        loginBtn.innerText = 'Увійти';
         errDiv.innerText = 'Помилка зв’язку з сервером';
         errDiv.style.display = 'block';
       }
@@ -457,8 +533,9 @@
       if (s1) s1.innerHTML = '<option value="" disabled selected>Оберіть дію...</option>';
       if (s2) s2.innerHTML = '';
       actionsList.forEach(a => {
-        if (s1) s1.innerHTML += `<option value="${a}">${a}</option>`;
-        if (s2) s2.innerHTML += `<option value="${a}">${a}</option>`;
+        const opt = `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`;
+        if (s1) s1.innerHTML += opt;
+        if (s2) s2.innerHTML += opt;
       });
     }
 
@@ -470,7 +547,7 @@
         const hint = document.getElementById('lastOdoHint');
         if (data.lastOdometer) {
           if (inp) inp.value = data.lastOdometer;
-          if (hint) hint.innerText = `Попередній: ${data.lastOdometer} км`;
+          if (hint) hint.innerText = `Попередній: ${escapeHtml(data.lastOdometer)} км`;
         } else {
           if (inp) {
             inp.value = '';
@@ -509,28 +586,37 @@
         action: document.getElementById('action').value,
         location: document.getElementById('location').value,
         comment: document.getElementById('comment').value,
-        coords: userCoords || document.getElementById('coords').value || 'Не визначено'
+        coords: userCoords || document.getElementById('coords').value || 'Не визначено',
+        is_reported: document.getElementById('formIsReported').checked ? 1 : 0
       };
 
-      const res = await fetch('/api/records', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      btn.disabled = false;
+      try {
+        const res = await fetch('/api/records', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        btn.disabled = false;
 
-      if (data.success) {
-        msg.className = 'toast success';
-        msg.innerText = 'Запис успішно збережено в базі!';
-        msg.style.display = 'block';
-        document.getElementById('comment').value = '';
-        loadLastOdometer();
-        setNowDateTime();
-        fetchGPS();
-      } else {
+        if (data.success) {
+          msg.className = 'toast success';
+          msg.innerText = 'Запис успішно збережено в базі!';
+          msg.style.display = 'block';
+          document.getElementById('comment').value = '';
+          document.getElementById('formIsReported').checked = false;
+          loadLastOdometer();
+          setNowDateTime();
+          fetchGPS();
+        } else {
+          msg.className = 'toast error';
+          msg.innerText = 'Помилка: ' + (data.error || 'Не вдалося зберегти');
+          msg.style.display = 'block';
+        }
+      } catch (err) {
+        btn.disabled = false;
         msg.className = 'toast error';
-        msg.innerText = 'Помилка: ' + data.error;
+        msg.innerText = 'Помилка підключення до сервера';
         msg.style.display = 'block';
       }
     });
@@ -540,54 +626,138 @@
         currentOffset = 0;
         const tb = document.getElementById('tableBody');
         if (tb) tb.innerHTML = '';
+        recordsCache.clear();
       }
       await loadMoreRecords(30);
     }
 
     async function loadMoreRecords(limitCount) {
-      const res = await fetch(`/api/records?limit=${limitCount}&offset=${currentOffset}`, { headers: authHeaders() });
-      const data = await res.json();
-      
-      totalRecords = data.total;
-      const cnt = document.getElementById('totalRecordsCount');
-      if (cnt) cnt.innerText = totalRecords;
+      try {
+        const res = await fetch(`/api/records?limit=${limitCount}&offset=${currentOffset}`, { headers: authHeaders() });
+        if (res.status === 401) return handleLogout();
+        const data = await res.json();
+        
+        totalRecords = data.total;
+        const cnt = document.getElementById('totalRecordsCount');
+        if (cnt) cnt.innerText = totalRecords;
 
-      const tbody = document.getElementById('tableBody');
-      if (tbody) {
-        data.records.forEach(r => {
-          tbody.innerHTML += `
-            <tr id="row_${r.id}">
-              <td><b>#${r.id}</b></td>
-              <td>${r.date}</td>
-              <td>${r.time}</td>
-              <td>${r.odometer ? r.odometer + ' км' : '-'}</td>
-              <td><span style="font-weight:600; color:var(--primary);">${r.action}</span></td>
-              <td>${r.location || '-'}</td>
-              <td style="white-space: pre-line;">${r.comment || '-'}</td>
-              <td>
-                ${r.coords && r.coords.includes(',') 
-                  ? `<a href="https://www.google.com/maps?q=${r.coords}" target="_blank" style="color:var(--primary); text-decoration:none;">🗺️ GPS</a>` 
-                  : '-'}
-              </td>
-              <td>
-                <div style="display:flex; gap:4px;">
-                  <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick='openEditModal(${JSON.stringify(r)})' title="Редагувати">✏️</button>
-                  <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem; color:var(--danger);" onclick="deleteRecord(${r.id})" title="Видалити">🗑️</button>
-                </div>
-              </td>
-            </tr>
-          `;
-        });
+        const tbody = document.getElementById('tableBody');
+        if (tbody) {
+          data.records.forEach(r => {
+            recordsCache.set(r.id, r);
+            tbody.innerHTML += renderTableRow(r);
+          });
+        }
+
+        currentOffset += data.records.length;
+        const st = document.getElementById('tableLoadedStatus');
+        if (st) st.innerText = `Показано ${currentOffset} із ${totalRecords} записів`;
+        const lm = document.getElementById('loadMoreSection');
+        if (lm) lm.style.display = (currentOffset >= totalRecords ? 'none' : 'flex');
+      } catch (e) {
+        console.error('Помилка завантаження таблиці', e);
       }
-
-      currentOffset += data.records.length;
-      const st = document.getElementById('tableLoadedStatus');
-      if (st) st.innerText = `Показано ${currentOffset} із ${totalRecords} записів`;
-      const lm = document.getElementById('loadMoreSection');
-      if (lm) lm.style.display = (currentOffset >= totalRecords ? 'none' : 'flex');
     }
 
-    function openEditModal(record) {
+    function renderTableRow(r) {
+      const isReported = Number(r.is_reported) === 1;
+      const reportedBadgeClass = isReported ? 'badge-reported-yes' : 'badge-reported-no';
+      const reportedText = isReported ? '✅ Так' : '⏳ Ні';
+
+      return `
+        <tr id="row_${r.id}">
+          <td><b>#${r.id}</b></td>
+          <td>${escapeHtml(r.date)}</td>
+          <td>${escapeHtml(r.time)}</td>
+          <td>${r.odometer ? escapeHtml(r.odometer) + ' км' : '-'}</td>
+          <td><span style="font-weight:600; color:var(--primary);">${escapeHtml(r.action)}</span></td>
+          <td>${escapeHtml(r.location) || '-'}</td>
+          <td style="white-space: pre-line;">${escapeHtml(r.comment) || '-'}</td>
+          <td>
+            ${r.coords && r.coords.includes(',') 
+              ? `<a href="https://www.google.com/maps?q=${encodeURIComponent(r.coords)}" target="_blank" style="color:var(--primary); text-decoration:none;">🗺️ GPS</a>` 
+              : '-'}
+          </td>
+          <td>
+            <button class="btn-report-toggle ${reportedBadgeClass}" onclick="toggleReportStatus(${r.id}, ${isReported ? 0 : 1})" title="Натисніть для зміни статусу">
+              ${reportedText}
+            </button>
+          </td>
+          <td>
+            <div style="display:flex; gap:4px;">
+              <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="openEditModalById(${r.id})" title="Редагувати">✏️</button>
+              <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem; color:var(--danger);" onclick="deleteRecord(${r.id})" title="Видалити">🗑️</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }
+
+    // Швидке перемикання статусу "Звіт здано" для окремого запису
+    async function toggleReportStatus(id, newStatus) {
+      try {
+        const res = await fetch(`/api/records/${id}/report-status`, {
+          method: 'PATCH',
+          headers: authHeaders(),
+          body: JSON.stringify({ is_reported: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          const rec = recordsCache.get(id);
+          if (rec) rec.is_reported = newStatus;
+          
+          // Оновлюємо рядок у таблиці, якщо він присутній
+          const row = document.getElementById(`row_${id}`);
+          if (row && rec) {
+            row.outerHTML = renderTableRow(rec);
+          }
+
+          // Оновлюємо елемент у звіті змін, якщо вкладка активна
+          const itemBadge = document.getElementById(`report_item_badge_${id}`);
+          if (itemBadge) {
+            const isRep = newStatus === 1;
+            itemBadge.className = `btn-report-toggle ${isRep ? 'badge-reported-yes' : 'badge-reported-no'}`;
+            itemBadge.innerText = isRep ? 'Звіт: ✅ Так' : 'Звіт: ⏳ Ні';
+            itemBadge.onclick = () => toggleReportStatus(id, isRep ? 0 : 1);
+          }
+        } else {
+          alert('Не вдалося оновити статус: ' + data.error);
+        }
+      } catch (e) {
+        alert('Помилка оновлення статусу');
+      }
+    }
+
+    // Масове перемикання статусу для списку ID (для всієї зміни)
+    async function bulkSetReportStatus(ids, newStatus) {
+      if (!ids || ids.length === 0) return;
+      try {
+        const res = await fetch('/api/records/bulk-report-status', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ ids, is_reported: newStatus })
+        });
+        const data = await res.json();
+        if (data.success) {
+          // Оновлюємо кеш
+          ids.forEach(id => {
+            const r = recordsCache.get(id);
+            if (r) r.is_reported = newStatus;
+          });
+          // Перезавантажуємо звіт
+          loadShiftsReport();
+        } else {
+          alert('Помилка масового оновлення: ' + data.error);
+        }
+      } catch (e) {
+        alert('Помилка зв’язку з сервером');
+      }
+    }
+
+    function openEditModalById(id) {
+      const record = recordsCache.get(id);
+      if (!record) return;
+
       document.getElementById('editId').value = record.id;
       document.getElementById('editDate').value = record.date;
       document.getElementById('editTime').value = record.time;
@@ -595,9 +765,13 @@
       document.getElementById('editAction').value = record.action;
       document.getElementById('editLocation').value = record.location || '';
       document.getElementById('editComment').value = record.comment || '';
+      document.getElementById('editIsReported').checked = Number(record.is_reported) === 1;
       document.getElementById('editModal').style.display = 'flex';
     }
-    function closeEditModal() { document.getElementById('editModal').style.display = 'none'; }
+
+    function closeEditModal() {
+      document.getElementById('editModal').style.display = 'none';
+    }
 
     async function saveEdit() {
       const id = document.getElementById('editId').value;
@@ -607,41 +781,53 @@
         odometer: document.getElementById('editOdometer').value,
         action: document.getElementById('editAction').value,
         location: document.getElementById('editLocation').value,
-        comment: document.getElementById('editComment').value
+        comment: document.getElementById('editComment').value,
+        is_reported: document.getElementById('editIsReported').checked ? 1 : 0
       };
 
-      const res = await fetch(`/api/records/${id}`, {
-        method: 'PUT',
-        headers: authHeaders(),
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-      if (data.success) {
-        closeEditModal();
-        reloadTable(true);
-        loadLastOdometer();
+      try {
+        const res = await fetch(`/api/records/${id}`, {
+          method: 'PUT',
+          headers: authHeaders(),
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          closeEditModal();
+          reloadTable(true);
+          loadLastOdometer();
+        } else {
+          alert('Помилка збереження: ' + (data.error || 'Невідома помилка'));
+        }
+      } catch (e) {
+        alert('Помилка підключення до сервера');
       }
     }
 
     async function deleteRecord(id) {
       if (!confirm(`Ви дійсно бажаєте видалити запис #${id}?`)) return;
 
-      const res = await fetch(`/api/records/${id}`, {
-        method: 'DELETE',
-        headers: authHeaders()
-      });
-      const data = await res.json();
+      try {
+        const res = await fetch(`/api/records/${id}`, {
+          method: 'DELETE',
+          headers: authHeaders()
+        });
+        const data = await res.json();
 
-      if (data.success) {
-        reloadTable(true);
-        loadLastOdometer();
-      } else {
-        alert('Помилка видалення: ' + data.error);
+        if (data.success) {
+          recordsCache.delete(id);
+          reloadTable(true);
+          loadLastOdometer();
+        } else {
+          alert('Помилка видалення: ' + data.error);
+        }
+      } catch (e) {
+        alert('Помилка підключення до сервера');
       }
     }
 
     async function deleteFromModal() {
-      const id = document.getElementById('editId').value;
+      const id = Number(document.getElementById('editId').value);
       if (id) {
         closeEditModal();
         await deleteRecord(id);
@@ -665,23 +851,29 @@
       btn.disabled = true;
       btn.innerText = 'Імпортування...';
 
-      const res = await fetch('/api/records/bulk-import', {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ rawText: text })
-      });
-      const data = await res.json();
+      try {
+        const res = await fetch('/api/records/bulk-import', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: JSON.stringify({ rawText: text })
+        });
+        const data = await res.json();
 
-      btn.disabled = false;
-      btn.innerText = 'Завантажити в базу';
+        btn.disabled = false;
+        btn.innerText = 'Завантажити в базу';
 
-      if (data.success) {
-        alert(`✅ Успішно додано ${data.count} записів!`);
-        closeImportModal();
-        reloadTable(true);
-        loadLastOdometer();
-      } else {
-        alert('❌ Помилка: ' + data.error);
+        if (data.success) {
+          alert(`✅ Успішно додано ${data.count} записів!`);
+          closeImportModal();
+          reloadTable(true);
+          loadLastOdometer();
+        } else {
+          alert('❌ Помилка: ' + data.error);
+        }
+      } catch (e) {
+        btn.disabled = false;
+        btn.innerText = 'Завантажити в базу';
+        alert('Помилка передачі даних для імпорту');
       }
     }
 
@@ -689,9 +881,15 @@
       const container = document.getElementById('shiftsContainer');
       container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--text-muted);">Завантаження звіту...</div>';
 
-      const res = await fetch('/api/records/all', { headers: authHeaders() });
-      const records = await res.json();
-      renderShifts(groupIntoShifts(records));
+      try {
+        const res = await fetch('/api/records/all', { headers: authHeaders() });
+        if (res.status === 401) return handleLogout();
+        const records = await res.json();
+        records.forEach(r => recordsCache.set(r.id, r));
+        renderShifts(groupIntoShifts(records));
+      } catch (e) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: var(--danger);">Помилка завантаження звіту</div>';
+      }
     }
 
     function groupIntoShifts(records) {
@@ -745,6 +943,7 @@
         container.innerHTML = '<div style="text-align: center; padding: 40px;">Записів ще немає</div>';
         return;
       }
+
       let html = '';
       items.forEach((item, idx) => {
         let title = '';
@@ -752,12 +951,21 @@
         let badgeText = '';
         let metaText = '';
 
+        const eventIds = item.events.map(e => e.id);
+        const reportedCount = item.events.filter(e => Number(e.is_reported) === 1).length;
+        const totalCount = item.events.length;
+        const isAllReported = totalCount > 0 && reportedCount === totalCount;
+
+        const shiftReportStatusBadge = isAllReported 
+          ? `<span class="badge badge-reported-yes">Звіт здано: ✅ Так</span>` 
+          : `<span class="badge badge-reported-no">Звіт здано: ⏳ Ні (${reportedCount}/${totalCount})</span>`;
+
         if (item.type === 'shift') {
           const isOpen = item.open !== null;
           const isClosed = item.close !== null;
 
           if (isOpen && isClosed) {
-            title = `${item.open.date} (${item.open.time} - ${item.close.time})`;
+            title = `${escapeHtml(item.open.date)} (${escapeHtml(item.open.time)} - ${escapeHtml(item.close.time)})`;
             badgeClass = 'badge-closed';
             badgeText = 'Закрита';
             let odoDiff = '';
@@ -765,50 +973,123 @@
               const diff = Number(item.close.odometer) - Number(item.open.odometer);
               if (!isNaN(diff)) odoDiff = `| Пробіг: <b>${diff} км</b>`;
             }
-            metaText = `Записів: ${item.events.length} ${odoDiff}`;
+            metaText = `Записів: ${totalCount} ${odoDiff}`;
           } else {
-            title = `Зміна від ${item.open.date} ${item.open.time}`;
+            title = `Зміна від ${escapeHtml(item.open.date)} ${escapeHtml(item.open.time)}`;
             badgeClass = 'badge-open';
             badgeText = 'В процесі ⏳';
-            metaText = `Записів: ${item.events.length}`;
+            metaText = `Записів: ${totalCount}`;
           }
         } else {
-          title = `📅 ${item.date}`;
+          title = `📅 ${escapeHtml(item.date)}`;
           badgeClass = 'badge-day';
           badgeText = 'Поза зміною';
-          metaText = `Записів за день: ${item.events.length}`;
+          metaText = `Записів за день: ${totalCount}`;
         }
+
+        const idsJson = JSON.stringify(eventIds);
 
         html += `
           <div class="shift-card" id="shift_${idx}">
             <div class="shift-header" onclick="document.getElementById('shift_${idx}').classList.toggle('expanded')">
               <div>
-                <strong>${title}</strong> <span class="badge ${badgeClass}">${badgeText}</span>
+                <strong>${title}</strong> 
+                <span class="badge ${badgeClass}" style="margin-right: 4px;">${badgeText}</span>
+                ${shiftReportStatusBadge}
                 <div style="font-size:0.85rem; color:var(--text-muted); margin-top:4px;">
                   ${metaText}
                 </div>
               </div>
-              <div>▼</div>
+              <div style="font-size: 1.1rem; color: var(--text-muted);">▼</div>
             </div>
             <div class="shift-body">
-              ${item.events.map(ev => `
-                <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem;">
-                  <b>${ev.action}</b> (${ev.time}) — ${ev.odometer ? ev.odometer + ' км' : ''} ${ev.location ? '| ' + ev.location : ''}
-                  ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.85rem; white-space:pre-line;">${ev.comment}</div>` : ''}
-                  ${ev.coords && ev.coords.includes(',') ? `
-                    <div style="margin-top: 3px;">
-                      <a href="https://www.google.com/maps?q=${ev.coords}" target="_blank" style="color:var(--primary); text-decoration:none; font-size:0.8rem;">
-                        🗺️ Мапа (${ev.coords})
-                      </a>
-                    </div>
-                  ` : ''}
+              <div class="shift-bulk-actions">
+                <span style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">Масова дія для зміни:</span>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick='event.stopPropagation(); bulkSetReportStatus(${idsJson}, 1)'>
+                    ✅ Позначити всю зміну як здану
+                  </button>
+                  <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick='event.stopPropagation(); bulkSetReportStatus(${idsJson}, 0)'>
+                    ⏳ Зняти позначку здачі
+                  </button>
                 </div>
-              `).join('')}
+              </div>
+
+              ${item.events.map(ev => {
+                const evReported = Number(ev.is_reported) === 1;
+                const evBadgeClass = evReported ? 'badge-reported-yes' : 'badge-reported-no';
+                const evText = evReported ? 'Звіт: ✅ Так' : 'Звіт: ⏳ Ні';
+
+                return `
+                  <div style="padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9rem; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+                    <div>
+                      <b>${escapeHtml(ev.action)}</b> (${escapeHtml(ev.time)}) — ${ev.odometer ? escapeHtml(ev.odometer) + ' км' : ''} ${ev.location ? '| ' + escapeHtml(ev.location) : ''}
+                      ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.85rem; white-space:pre-line;">${escapeHtml(ev.comment)}</div>` : ''}
+                      ${ev.coords && ev.coords.includes(',') ? `
+                        <div style="margin-top: 3px;">
+                          <a href="https://www.google.com/maps?q=${encodeURIComponent(ev.coords)}" target="_blank" style="color:var(--primary); text-decoration:none; font-size:0.8rem;">
+                            🗺️ Мапа (${escapeHtml(ev.coords)})
+                          </a>
+                        </div>
+                      ` : ''}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <button id="report_item_badge_${ev.id}" class="btn-report-toggle ${evBadgeClass}" onclick="toggleReportStatus(${ev.id}, ${evReported ? 0 : 1})" title="Натисніть для зміни статусу">
+                        ${evText}
+                      </button>
+                      <button class="btn btn-secondary" style="padding:4px 8px; font-size:0.8rem;" onclick="openEditModalById(${ev.id})" title="Редагувати">✏️</button>
+                    </div>
+                  </div>
+                `;
+              }).join('')}
             </div>
           </div>
         `;
       });
       container.innerHTML = html;
+    }
+
+    // Експорт таблиці у CSV файл із підтримкою кирилиці (UTF-8 BOM)
+    async function exportToCSV() {
+      try {
+        const res = await fetch('/api/records/all', { headers: authHeaders() });
+        const records = await res.json();
+        if (!records || records.length === 0) {
+          alert('Немає записів для експорту');
+          return;
+        }
+
+        const headers = ['ID', 'Дата', 'Час', 'Одометр', 'Дія', 'Локація', 'Коментар', 'GPS', 'Звіт здано'];
+        const csvRows = [headers.join(';')];
+
+        records.forEach(r => {
+          const row = [
+            r.id,
+            `"${(r.date || '').replace(/"/g, '""')}"`,
+            `"${(r.time || '').replace(/"/g, '""')}"`,
+            r.odometer !== null ? r.odometer : '',
+            `"${(r.action || '').replace(/"/g, '""')}"`,
+            `"${(r.location || '').replace(/"/g, '""')}"`,
+            `"${(r.comment || '').replace(/"/g, '""')}"`,
+            `"${(r.coords || '').replace(/"/g, '""')}"`,
+            Number(r.is_reported) === 1 ? 'Так' : 'Ні'
+          ];
+          csvRows.push(row.join(';'));
+        });
+
+        // Додаємо BOM (\uFEFF) для коректного відображення кирилиці в MS Excel
+        const blob = new Blob(['\uFEFF' + csvRows.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `trip_records_${new Date().toISOString().slice(0, 10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        alert('Помилка експорту даних: ' + e.message);
+      }
     }
 
     if (token) showApp();

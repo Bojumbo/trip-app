@@ -8,8 +8,8 @@ services:
     ports:
       - "8851:3000"
     environment:
-      - PORT=3000
-      - ADMIN_PASSWORD=2856023b   # <--- Встановіть свій пароль для входу!
-      - JWT_SECRET=change_me_to_random_secret_string
+      - PORT=${PORT:-3000}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-2856023b}
+      - JWT_SECRET=${JWT_SECRET:-super_secret_jwt_key_12345}
     volumes:
       - ./data:/app/data
