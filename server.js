@@ -84,8 +84,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_records_date_time ON records(date, time);
   CREATE INDEX IF NOT EXISTS idx_records_odometer ON records(odometer);
   CREATE INDEX IF NOT EXISTS idx_records_is_reported ON records(is_reported);
-  CREATE INDEX IF NOT EXISTS idx_records_trip_id ON records(trip_id);
-  CREATE INDEX IF NOT EXISTS idx_records_delivery_id ON records(delivery_id);
   CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status);
   CREATE INDEX IF NOT EXISTS idx_deliveries_trip_id ON deliveries(trip_id);
 `);
@@ -101,6 +99,12 @@ if (!recordCols.includes('trip_id')) {
 if (!recordCols.includes('delivery_id')) {
   db.exec('ALTER TABLE records ADD COLUMN delivery_id INTEGER REFERENCES deliveries(id) ON DELETE SET NULL');
 }
+
+// Створюємо індекси для нових колонок ПІСЛЯ міграції (щоб вони вже існували)
+db.exec(`
+  CREATE INDEX IF NOT EXISTS idx_records_trip_id ON records(trip_id);
+  CREATE INDEX IF NOT EXISTS idx_records_delivery_id ON records(delivery_id);
+`);
 
 // 3. Автоматична міграція існуючих даних у «Рейс #1», якщо база вже мала записи
 const tripsCount = db.prepare('SELECT count(*) as count FROM trips').get().count;
