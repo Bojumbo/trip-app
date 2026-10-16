@@ -4,12 +4,13 @@ services:
   trip-tracker:
     build: .
     container_name: trip-tracker
-    restart: always
+    restart: unless-stopped
     ports:
       - "8851:3000"
     environment:
+      - NODE_ENV=production
       - PORT=${PORT:-3000}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-2856023b}
-      - JWT_SECRET=${JWT_SECRET:-super_secret_jwt_key_12345}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Будь ласка, вкажіть ADMIN_PASSWORD у файлі .env}
+      - JWT_SECRET=${JWT_SECRET:?Будь ласка, вкажіть JWT_SECRET у файлі .env}
     volumes:
       - ./data:/app/data

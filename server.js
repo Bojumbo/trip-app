@@ -2,20 +2,40 @@ const express = require('express');
 const Database = require('better-sqlite3');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const JWT_SECRET = process.env.JWT_SECRET || 'super_secret_jwt_key_12345';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '2856023b';
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+// Перевірка секретів
+const JWT_SECRET = process.env.JWT_SECRET || (IS_PROD ? null : 'dev_jwt_secret_key_trip_tracker_123');
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || (IS_PROD ? null : 'admin123');
+
+if (IS_PROD && (!JWT_SECRET || !ADMIN_PASSWORD)) {
+  console.error('❌ КРИТИЧНА ПОМИЛКА: У продакшн-режимі змінні JWT_SECRET та ADMIN_PASSWORD є обов\'язковими!');
+  process.exit(1);
+}
+
+if (!IS_PROD && (!process.env.JWT_SECRET || !process.env.ADMIN_PASSWORD)) {
+  console.warn('⚠️ УВАГА: Сервер запущено в режимі розробки з дефолтними секретами. Задайте ADMIN_PASSWORD та JWT_SECRET у файлі .env');
+}
+
+// Довіряти reverse proxy для коректного визначення client IP
+app.set('trust proxy', 1);
 
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new Database(path.join(dataDir, 'database.sqlite'));
 
-// Ініціалізація структури БД
+// Оптимізація SQLite: режим WAL та швидка синхронізація
+db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+
+// Ініціалізація структури БД та індексів
 db.exec(`
   CREATE TABLE IF NOT EXISTS records (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,9 +54,13 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT UNIQUE NOT NULL
   );
+
+  CREATE INDEX IF NOT EXISTS idx_records_date_time ON records(date, time);
+  CREATE INDEX IF NOT EXISTS idx_records_odometer ON records(odometer);
+  CREATE INDEX IF NOT EXISTS idx_records_is_reported ON records(is_reported);
 `);
 
-// Міграція для існуючих БД: перевірка наявності поля is_reported
+// Міграція для перевірки поля is_reported
 const tableInfo = db.pragma('table_info(records)');
 if (!tableInfo.some(col => col.name === 'is_reported')) {
   db.exec('ALTER TABLE records ADD COLUMN is_reported INTEGER DEFAULT 0');
@@ -48,33 +72,74 @@ if (countActions.count === 0) {
   ['Загрузка', 'Вигрузка', 'Пауза', 'Відкрив зміну', 'Закрив зміну', 'Інше (коментар)'].forEach(a => insertAction.run(a));
 }
 
+// Безпекові заголовки
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  next();
+});
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rate limiter для входу (захист від brute-force)
+// Rate Limiter для захисту від brute-force з очищенням пам'яті (Sliding Window)
 const loginAttempts = new Map();
 const MAX_ATTEMPTS = 5;
-const LOCK_TIME_MS = 15 * 60 * 1000; // 15 хвилин
+const LOCK_TIME_MS = 15 * 60 * 1000; // 15 хв
+const ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+
+// Періодичне очищення старих записів для запобігання витоку пам'яті
+const cleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [ip, rec] of loginAttempts.entries()) {
+    if (rec.lockedUntil && now >= rec.lockedUntil) {
+      loginAttempts.delete(ip);
+    } else if (!rec.lockedUntil && now - rec.firstAttempt > ATTEMPT_WINDOW_MS) {
+      loginAttempts.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000);
+cleanupInterval.unref();
+
+function getClientIp(req) {
+  return req.ip || req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+}
 
 function checkRateLimit(ip) {
   const now = Date.now();
   const record = loginAttempts.get(ip);
   if (!record) return { allowed: true };
-  if (record.lockedUntil && now < record.lockedUntil) {
-    const waitMin = Math.ceil((record.lockedUntil - now) / 60000);
-    return { allowed: false, message: `Забагато спроб входу. Зачекайте ${waitMin} хв.` };
-  }
-  if (record.lockedUntil && now >= record.lockedUntil) {
+
+  if (record.lockedUntil) {
+    if (now < record.lockedUntil) {
+      const waitMin = Math.ceil((record.lockedUntil - now) / 60000);
+      return { allowed: false, message: `Забагато спроб входу. Зачекайте ${waitMin} хв.` };
+    }
     loginAttempts.delete(ip);
     return { allowed: true };
   }
+
+  // Якщо вікно минуло - скидаємо лічильник
+  if (now - record.firstAttempt > ATTEMPT_WINDOW_MS) {
+    loginAttempts.delete(ip);
+    return { allowed: true };
+  }
+
   return { allowed: true };
 }
 
 function recordFailedLogin(ip) {
   const now = Date.now();
   const record = loginAttempts.get(ip) || { count: 0, firstAttempt: now };
-  record.count += 1;
+  if (now - record.firstAttempt > ATTEMPT_WINDOW_MS) {
+    record.count = 1;
+    record.firstAttempt = now;
+  } else {
+    record.count += 1;
+  }
+
   if (record.count >= MAX_ATTEMPTS) {
     record.lockedUntil = now + LOCK_TIME_MS;
   }
@@ -87,7 +152,7 @@ function clearFailedLogin(ip) {
 
 function verifyPassword(inputPassword, storedPassword) {
   if (!storedPassword || !inputPassword) return false;
-  // Якщо збережений пароль це bcrypt-хеш
+  // Якщо пароль у конфігу є bcrypt-хешем
   if (storedPassword.startsWith('$2a$') || storedPassword.startsWith('$2b$')) {
     try {
       return bcrypt.compareSync(inputPassword, storedPassword);
@@ -95,8 +160,15 @@ function verifyPassword(inputPassword, storedPassword) {
       return false;
     }
   }
-  // Пряме порівняння відкритих рядків
-  return inputPassword === storedPassword;
+  // Безпечне порівняння відкритих рядків для захисту від timing attacks
+  try {
+    const inputBuf = Buffer.from(inputPassword, 'utf8');
+    const storedBuf = Buffer.from(storedPassword, 'utf8');
+    if (inputBuf.length !== storedBuf.length) return false;
+    return crypto.timingSafeEqual(inputBuf, storedBuf);
+  } catch {
+    return false;
+  }
 }
 
 function authMiddleware(req, res, next) {
@@ -107,13 +179,13 @@ function authMiddleware(req, res, next) {
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch (err) {
-    return res.status(401).json({ error: 'Недійсний токен' });
+    return res.status(401).json({ error: 'Недійсний або прострочений токен' });
   }
 }
 
 // 1. Авторизація
 app.post('/api/login', (req, res) => {
-  const clientIp = req.ip || req.connection.remoteAddress || 'unknown';
+  const clientIp = getClientIp(req);
   const rateLimit = checkRateLimit(clientIp);
   if (!rateLimit.allowed) {
     return res.status(429).json({ success: false, error: rateLimit.message });
@@ -148,7 +220,7 @@ app.get('/api/odometer/last', authMiddleware, (req, res) => {
       WHERE odometer IS NOT NULL 
         AND odometer != '' 
         AND CAST(odometer AS INTEGER) > 0 
-      ORDER BY id DESC 
+      ORDER BY date DESC, time DESC, id DESC 
       LIMIT 1
     `).get();
     res.json({ lastOdometer: row ? row.odometer : '' });
@@ -159,8 +231,8 @@ app.get('/api/odometer/last', authMiddleware, (req, res) => {
 
 // Допоміжна валідація запису
 function validateRecordInput(body) {
-  const { date, time, action } = body;
-  if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+  const { date, time, action, odometer } = body;
+  if (!date || typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
     return 'Некоректний формат дати (очікується YYYY-MM-DD)';
   }
   if (!time || typeof time !== 'string' || !/^\d{1,2}:\d{2}$/.test(time)) {
@@ -168,6 +240,12 @@ function validateRecordInput(body) {
   }
   if (!action || typeof action !== 'string' || action.trim() === '') {
     return 'Поле "Дія" є обов\'язковим';
+  }
+  if (odometer !== undefined && odometer !== null && odometer !== '') {
+    const odo = Number(odometer);
+    if (isNaN(odo) || odo < 0 || !Number.isInteger(odo)) {
+      return 'Одометр має бути невід\'ємним цілим числом';
+    }
   }
   return null;
 }
@@ -179,11 +257,11 @@ app.post('/api/records', authMiddleware, (req, res) => {
 
   const { date, time, odometer, action, location, comment, coords, is_reported } = req.body;
   try {
-    const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Number(odometer) : null;
+    const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Math.round(Number(odometer)) : null;
     const isReportedVal = is_reported ? 1 : 0;
-    const locClean = location ? String(location).slice(0, 255) : '';
-    const commClean = comment ? String(comment).slice(0, 2000) : '';
-    const coordsClean = coords ? String(coords).slice(0, 100) : '';
+    const locClean = location ? String(location).trim().slice(0, 255) : '';
+    const commClean = comment ? String(comment).trim().slice(0, 2000) : '';
+    const coordsClean = coords ? String(coords).trim().slice(0, 100) : '';
 
     const stmt = db.prepare(`
       INSERT INTO records (date, time, odometer, action, location, comment, coords, is_reported)
@@ -255,25 +333,34 @@ app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
         let d = col[0] ? col[0].trim() : '';
         if (d.includes('.')) {
           const p = d.split('.');
-          if (p.length === 3) d = `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+          if (p.length === 3) {
+            let year = p[2].trim();
+            if (year.length === 2) year = '20' + year;
+            d = `${year}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}`;
+          }
         }
 
-        const t = col[1] ? col[1].trim() : '';
+        let t = col[1] ? col[1].trim() : '';
+        if (t.length > 5 && t.includes(':')) {
+          t = t.slice(0, 5); // скорочуємо HH:MM:SS до HH:MM
+        }
+
         const odoRaw = col[2] ? col[2].toString().trim() : '';
-        const odo = (odoRaw !== '' && !isNaN(odoRaw)) ? Number(odoRaw) : null;
+        const odo = (odoRaw !== '' && !isNaN(odoRaw)) ? Math.round(Number(odoRaw)) : null;
         const act = col[3] ? col[3].trim() : 'Інше (коментар)';
         const loc = col[4] ? col[4].trim() : '';
         const comm = col[5] ? col[5].trim() : '';
         const coords = col[6] ? col[6].trim() : '';
-        // Якщо є колонка зі статусом звіту
         let isReported = 0;
         if (col[7]) {
           const val = col[7].toLowerCase().trim();
           if (val === 'так' || val === 'yes' || val === '1' || val === 'true') isReported = 1;
         }
 
-        stmt.run(d, t, odo, act, loc, comm, coords, isReported);
-        count++;
+        if (d && t && act) {
+          stmt.run(d, t, odo, act, loc, comm, coords, isReported);
+          count++;
+        }
       }
     });
 
@@ -284,35 +371,74 @@ app.post('/api/records/bulk-import', authMiddleware, (req, res) => {
   }
 });
 
-// 7. Таблиця (Пагінація)
+// 7. Таблиця (з пошуком, фільтрацією та пагінацією)
 app.get('/api/records', authMiddleware, (req, res) => {
-  const limit = Math.min(Math.max(parseInt(req.query.limit) || 30, 1), 500);
-  const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 500);
+  const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+  const search = req.query.search ? String(req.query.search).trim() : '';
+  const dateFrom = req.query.date_from ? String(req.query.date_from).trim() : '';
+  const dateTo = req.query.date_to ? String(req.query.date_to).trim() : '';
+  const isReported = req.query.is_reported;
 
-  const records = db.prepare('SELECT * FROM records ORDER BY id DESC LIMIT ? OFFSET ?').all(limit, offset);
-  const total = db.prepare('SELECT count(*) as total FROM records').get().total;
+  const whereClauses = [];
+  const params = [];
+
+  if (search) {
+    whereClauses.push('(location LIKE ? OR comment LIKE ? OR action LIKE ?)');
+    const term = `%${search}%`;
+    params.push(term, term, term);
+  }
+
+  if (dateFrom) {
+    whereClauses.push('date >= ?');
+    params.push(dateFrom);
+  }
+
+  if (dateTo) {
+    whereClauses.push('date <= ?');
+    params.push(dateTo);
+  }
+
+  if (isReported !== undefined && isReported !== '') {
+    whereClauses.push('is_reported = ?');
+    params.push(isReported === '1' ? 1 : 0);
+  }
+
+  const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+
+  const totalStmt = db.prepare(`SELECT count(*) as total FROM records ${whereSql}`);
+  const total = totalStmt.get(...params).total;
+
+  const recordsStmt = db.prepare(`
+    SELECT * FROM records 
+    ${whereSql} 
+    ORDER BY date DESC, time DESC, id DESC 
+    LIMIT ? OFFSET ?
+  `);
+  const records = recordsStmt.all(...params, limit, offset);
 
   res.json({ records, total, hasMore: offset + records.length < total });
 });
 
-// 8. Редагування запису
+// 8. Редагування запису (з підтримкою coords)
 app.put('/api/records/:id', authMiddleware, (req, res) => {
   const { id } = req.params;
   const error = validateRecordInput(req.body);
   if (error) return res.status(400).json({ error });
 
-  const { date, time, odometer, action, location, comment, is_reported } = req.body;
+  const { date, time, odometer, action, location, comment, coords, is_reported } = req.body;
   try {
-    const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Number(odometer) : null;
+    const odoNum = (odometer !== '' && odometer !== null && !isNaN(odometer)) ? Math.round(Number(odometer)) : null;
     const isReportedVal = is_reported ? 1 : 0;
-    const locClean = location ? String(location).slice(0, 255) : '';
-    const commClean = comment ? String(comment).slice(0, 2000) : '';
+    const locClean = location ? String(location).trim().slice(0, 255) : '';
+    const commClean = comment ? String(comment).trim().slice(0, 2000) : '';
+    const coordsClean = coords ? String(coords).trim().slice(0, 100) : '';
 
     const info = db.prepare(`
       UPDATE records 
-      SET date = ?, time = ?, odometer = ?, action = ?, location = ?, comment = ?, is_reported = ?
+      SET date = ?, time = ?, odometer = ?, action = ?, location = ?, comment = ?, coords = ?, is_reported = ?
       WHERE id = ?
-    `).run(date, time, odoNum, action.trim(), locClean, commClean, isReportedVal, id);
+    `).run(date, time, odoNum, action.trim(), locClean, commClean, coordsClean, isReportedVal, id);
 
     if (info.changes > 0) {
       res.json({ success: true });
@@ -324,7 +450,7 @@ app.put('/api/records/:id', authMiddleware, (req, res) => {
   }
 });
 
-// 9. Швидке перемикання статусу "Звіт здано" (Так / Ні) для окремого елемента
+// 9. Швидке перемикання статусу "Звіт здано" для окремого елемента
 app.patch('/api/records/:id/report-status', authMiddleware, (req, res) => {
   const { id } = req.params;
   const { is_reported } = req.body;
@@ -341,7 +467,7 @@ app.patch('/api/records/:id/report-status', authMiddleware, (req, res) => {
   }
 });
 
-// 10. Масове перемикання статусу "Звіт здано" для списку ID (наприклад, для всієї зміни)
+// 10. Масове перемикання статусу "Звіт здано" для списку ID
 app.post('/api/records/bulk-report-status', authMiddleware, (req, res) => {
   const { ids, is_reported } = req.body;
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -376,12 +502,55 @@ app.delete('/api/records/:id', authMiddleware, (req, res) => {
   }
 });
 
-// 12. Всі записи для Звіту
+// 12. Всі записи для Звіту (хронологічно: date ASC, time ASC, id ASC)
 app.get('/api/records/all', authMiddleware, (req, res) => {
-  const records = db.prepare('SELECT * FROM records ORDER BY id ASC').all();
-  res.json(records);
+  try {
+    const dateFrom = req.query.date_from ? String(req.query.date_from).trim() : '';
+    const dateTo = req.query.date_to ? String(req.query.date_to).trim() : '';
+
+    const whereClauses = [];
+    const params = [];
+
+    if (dateFrom) {
+      whereClauses.push('date >= ?');
+      params.push(dateFrom);
+    }
+    if (dateTo) {
+      whereClauses.push('date <= ?');
+      params.push(dateTo);
+    }
+
+    const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+    const records = db.prepare(`SELECT * FROM records ${whereSql} ORDER BY date ASC, time ASC, id ASC`).all(...params);
+    res.json(records);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Сервер працює на порті ${PORT}`);
+// Глобальний обробник помилок
+app.use((err, req, res, next) => {
+  console.error('Неперехоплена помилка:', err);
+  res.status(500).json({ error: 'Внутрішня помилка сервера' });
 });
+
+const server = app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Сервер працює на порті ${PORT} (${IS_PROD ? 'production' : 'development'})`);
+});
+
+// Коректне закриття бази даних при завершенні процесу
+function gracefulShutdown(signal) {
+  console.log(`\nЗупинка сервера за сигналом ${signal}...`);
+  server.close(() => {
+    try {
+      db.close();
+      console.log('✅ З\'єднання з SQLite успішно закрито.');
+    } catch (e) {
+      console.error('Помилка закриття SQLite:', e);
+    }
+    process.exit(0);
+  });
+}
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
