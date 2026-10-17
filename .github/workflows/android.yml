@@ -76,21 +76,17 @@ jobs:
         run: |
           git config user.name "ci-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin "+refs/heads/ci-logs:refs/remotes/origin/ci-logs" || true
-
-          if git show-ref --verify --quiet refs/remotes/origin/ci-logs; then
-            git checkout -B ci-logs refs/remotes/origin/ci-logs
-          else
-            git checkout --orphan ci-logs
-            git rm -rf --cached . > /dev/null 2>&1 || true
-            find . -mindepth 1 -maxdepth 1 ! -name build.log -exec rm -rf {} + 2>/dev/null || true
-          fi
+          # Гілка ci-logs = дерево main + logs/<run_id>.log. Лишаємо лише
+          # останній запуск: checkout -f -B скидає гілку до main.
+          git fetch --no-tags origin "+refs/heads/main:refs/heads/main" || true
+          git checkout -f -B ci-logs refs/heads/main
+          git clean -fdxq -e build.log
 
           mkdir -p logs
           cp build.log "logs/${{ github.run_id }}.log"
           git add -f logs
-          git commit -m "log ${{ github.run_id }} (${{ github.sha }}) ${{ job.status }}" || exit 0
-          git push origin ci-logs
+          git commit -m "log ${{ github.run_id }} (${{ github.sha }})"
+          git push --force origin ci-logs
 
       - name: Вивантажити лог і APK
         if: always()
