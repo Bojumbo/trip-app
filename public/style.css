@@ -834,3 +834,120 @@ tr:hover { background: rgba(37, 99, 235, 0.03); }
     transition-duration: 0.001ms !important;
   }
 }
+
+/* ---------- Маршрут рейсу ---------- */
+.track-map {
+  width: 100%;
+  height: 440px;
+  min-height: 260px;
+  border-radius: var(--radius, 10px);
+  border: 1px solid var(--border);
+  background: #eef2f7;
+  overflow: hidden;
+}
+
+.track-map .maplibregl-ctrl-group { border-radius: 8px; }
+
+.track-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.track-stat {
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.track-stat-value {
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.track-stat-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.track-legend-line {
+  display: inline-block;
+  width: 22px;
+  height: 0;
+  margin-right: 5px;
+  vertical-align: middle;
+  border-top-width: 3px;
+  border-top-style: solid;
+}
+
+.track-legend-drive { border-top-color: #2563eb; }
+.track-legend-walk { border-top-color: #f59e0b; border-top-style: dashed; }
+.track-legend-still { border-top-color: #6b7280; border-top-style: dotted; }
+.track-legend-nosignal { border-top-color: #9ca3af; border-top-style: dotted; }
+.track-legend-record { border-top: none; width: 9px; height: 9px; border-radius: 50%; background: #fff; border: 2px solid #dc2626; }
+
+.track-popup.maplibregl-popup-content {
+  font-size: 0.78rem;
+  line-height: 1.35;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+@media (max-width: 480px) {
+  .track-map { height: 320px; }
+}
+
+@media (max-width: 560px) {
+  #trackModal .modal-content { padding: 12px; }
+  .track-stats { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .track-stat { padding: 6px 7px; }
+  .track-stat-value { font-size: 0.85rem; }
+  .track-stat-label { font-size: 0.66rem; }
+}
+
+.badge-auto {
+  background: rgba(124, 58, 237, 0.14);
+  color: #7c3aed;
+  border: 1px solid rgba(124, 58, 237, 0.35);
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+/* Перемикач «що показувати» на карті маршруту */
+.track-fit {
+  display: flex;
+  gap: 4px;
+  margin: 10px 0 0 10px;
+}
+
+.track-fit button {
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--text, #1f2937);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.track-fit button:hover { filter: brightness(0.96); }
+
+.track-fit button.active {
+  background: var(--primary, #2563eb);
+  border-color: var(--primary, #2563eb);
+  color: #fff;
+}
+
+.track-fit button:focus-visible {
+  outline: 2px solid var(--primary, #2563eb);
+  outline-offset: 2px;
+}

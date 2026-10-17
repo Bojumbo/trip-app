@@ -5,6 +5,7 @@ const db = require('../db');
 const logger = require('../logger');
 const { ApiError } = require('../lib/errors');
 const { cleanText, parseBool, parseInteger, requireDate, requireTime } = require('../lib/validate');
+const { requireSession } = require('../lib/sessions');
 
 const router = express.Router();
 
@@ -28,6 +29,9 @@ router.get('/active', (req, res) => {
 
   res.json({ activeTrip, activeDeliveries });
 });
+
+// Далі — лише веб-сесія (пристрою доступний тільки /active)
+router.use(requireSession);
 
 router.get('/', (req, res) => {
   const trips = db.prepare(`
@@ -175,6 +179,18 @@ router.get('/:id/details', (req, res) => {
   const records = db.prepare('SELECT * FROM records WHERE trip_id = ? ORDER BY date ASC, time ASC, id ASC').all(trip.id);
 
   res.json({ trip, deliveries, records });
+});
+
+/** Сегменти маршруту рейсу (для карти). */
+router.get('/:id/track', (req, res) => {
+  const trip = getTripOrFail(req.params.id);
+
+  const segments = db.prepare(`
+    SELECT id, mode, started_at, ended_at, distance_m, points, polyline, pause_record_id
+    FROM track_segments WHERE trip_id = ? ORDER BY started_at ASC
+  `).all(trip.id);
+
+  res.json({ trip_id: trip.id, segments });
 });
 
 module.exports = router;

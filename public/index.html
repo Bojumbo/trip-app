@@ -577,6 +577,36 @@
     </div>
   </div>
 
+  <!-- МОДАЛЬНЕ ВІКНО: МАРШРУТ РЕЙСУ -->
+  <div id="trackModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="trackModalTitle">
+    <div class="modal-content" style="max-width: 860px;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px; margin-bottom:10px;">
+        <div style="min-width:0;">
+          <h3 id="trackModalTitle" style="margin-bottom: 2px; font-size: 1.15rem;">🗺️ Маршрут рейсу</h3>
+          <div id="trackModalSubtitle" style="font-size:0.8rem; color:var(--text-muted);"></div>
+        </div>
+        <button type="button" class="btn btn-secondary" style="padding:5px 10px; font-size:0.8rem; flex-shrink:0;"
+                data-action="close-modal" data-modal="trackModal" aria-label="Закрити">✕</button>
+      </div>
+
+      <div id="trackStats" class="track-stats" style="display:none;"></div>
+      <div id="trackMap" class="track-map" role="img" aria-label="Карта маршруту рейсу"></div>
+      <div id="trackEmpty" style="display:none; text-align:center; padding:36px 16px; color:var(--text-muted);">
+        <div style="font-size:2.4rem; margin-bottom:10px;">🛰️</div>
+        <p style="margin-bottom:6px;">Даних маршруту немає.</p>
+        <p style="font-size:0.82rem;">Увімкніть трекінг в Android-застосунку на час рейсу — маршрут,<br>зупинки та ходьба з’являться тут автоматично.</p>
+      </div>
+
+      <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-size:0.78rem; color:var(--text-muted);">
+        <span><span class="track-legend-line track-legend-drive"></span> рух авто</span>
+        <span><span class="track-legend-line track-legend-walk"></span> ходьба</span>
+        <span><span class="track-legend-line track-legend-still"></span> стоянка</span>
+        <span><span class="track-legend-line track-legend-nosignal"></span> немає сигналу</span>
+        <span><span class="track-legend-line track-legend-record"></span> запис / пауза</span>
+      </div>
+    </div>
+  </div>
+
   <script src="/app.js"></script>
 </body>
 </html>

@@ -9,13 +9,39 @@ const {
 } = require('../lib/validate');
 const { parseTSV } = require('../lib/tsv');
 const { insertRecord, deleteRecord } = require('../services/records');
+const { requireSession } = require('../lib/sessions');
+const { parseCoords, distanceMeters, timeToMinutes } = require('../lib/geo');
 const { LIMITS } = require('../config');
 
 const router = express.Router();
 
-// ---------- Створення ----------
+/**
+ * Дедуплікація автопауз: два пристрої або повторна відправка не мають
+ * створювати дві паузи на одну зупинку (±5 хв і 200 м).
+ */
+function findNearbyPause(date, time, coords) {
+  const minutes = timeToMinutes(time);
+  if (minutes === null) return null;
+
+  const rows = db.prepare(`
+    SELECT id, coords FROM records
+    WHERE date = ? AND action = 'Пауза'
+      AND ABS((CAST(substr(time, 1, 2) AS INTEGER) * 60 + CAST(substr(time, 4, 2) AS INTEGER)) - ?) <= 5
+  `).all(date, minutes);
+
+  const point = parseCoords(coords);
+  for (const row of rows) {
+    if (!point) return row;
+    const other = parseCoords(row.coords);
+    if (!other || distanceMeters(point, other) <= 200) return row;
+  }
+  return null;
+}
+
+// ---------- Створення (дозволено і сесії, і пристрою) ----------
 router.post('/', (req, res) => {
   const input = validateRecordInput(req.body || {});
+  if (req.device) input.device_id = req.device.id;
 
   // Ідемпотентність для офлайн-черги
   if (input.client_uuid) {
@@ -31,6 +57,13 @@ router.post('/', (req, res) => {
     }
   }
 
+  if (input.source === 'auto') {
+    const nearby = findNearbyPause(input.date, input.time, input.coords);
+    if (nearby) {
+      return res.json({ success: true, id: nearby.id, duplicate: true, reason: 'nearby_pause' });
+    }
+  }
+
   const result = insertRecord(input);
   res.json({
     success: true,
@@ -40,6 +73,9 @@ router.post('/', (req, res) => {
     warning: result.warning || undefined
   });
 });
+
+// ---------- Далі — лише веб-сесія ----------
+router.use(requireSession);
 
 // ---------- Імпорт ----------
 router.post('/bulk-import', express.json({ limit: LIMITS.bulkImport }), (req, res) => {

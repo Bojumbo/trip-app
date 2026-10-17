@@ -39,6 +39,8 @@ const DDL = `
     is_reported INTEGER DEFAULT 0,
     trip_id INTEGER REFERENCES trips(id) ON DELETE SET NULL,
     delivery_id INTEGER REFERENCES deliveries(id) ON DELETE SET NULL,
+    source TEXT DEFAULT 'manual',
+    device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -55,20 +57,52 @@ const DDL = `
     expires_at INTEGER NOT NULL
   );
 
+  -- Пристрої, які можуть писати в API без cookie (Android-трекер)
+  CREATE TABLE IF NOT EXISTS devices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
+    platform TEXT DEFAULT 'android',
+    is_tracker INTEGER DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    last_seen INTEGER
+  );
+
+  -- Сегменти маршруту (drive / walk / still / nosignal) з encoded polyline
+  CREATE TABLE IF NOT EXISTS track_segments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trip_id INTEGER NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+    device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL,
+    mode TEXT NOT NULL,
+    started_at INTEGER NOT NULL,
+    ended_at INTEGER NOT NULL,
+    distance_m INTEGER,
+    points INTEGER,
+    polyline TEXT,
+    pause_record_id INTEGER REFERENCES records(id) ON DELETE SET NULL,
+    client_uuid TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE INDEX IF NOT EXISTS idx_records_date_time ON records(date, time);
   CREATE INDEX IF NOT EXISTS idx_records_odometer ON records(odometer);
   CREATE INDEX IF NOT EXISTS idx_records_is_reported ON records(is_reported);
   CREATE INDEX IF NOT EXISTS idx_records_trip_id ON records(trip_id);
   CREATE INDEX IF NOT EXISTS idx_records_delivery_id ON records(delivery_id);
+  CREATE INDEX IF NOT EXISTS idx_records_source ON records(source);
   CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status);
   CREATE INDEX IF NOT EXISTS idx_deliveries_trip_id ON deliveries(trip_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
+  CREATE INDEX IF NOT EXISTS idx_devices_token ON devices(token_hash);
+  CREATE INDEX IF NOT EXISTS idx_track_trip ON track_segments(trip_id, started_at);
+  CREATE INDEX IF NOT EXISTS idx_track_pause ON track_segments(pause_record_id);
 `;
 
 const DEFAULT_ACTIONS = [
   'Загрузка',
   'Вигрузка',
   'Пауза',
+  'Продовження руху',
   'Відкрив зміну',
   'Закрив зміну',
   'Інше (коментар)'
@@ -91,6 +125,10 @@ function cleanupOrphans(db) {
              WHERE trip_id IS NOT NULL AND trip_id NOT IN (SELECT id FROM trips)`);
     db.exec(`UPDATE records SET delivery_id = NULL
              WHERE delivery_id IS NOT NULL AND delivery_id NOT IN (SELECT id FROM deliveries)`);
+    db.exec(`UPDATE records SET device_id = NULL
+             WHERE device_id IS NOT NULL AND device_id NOT IN (SELECT id FROM devices)`);
+    db.exec(`UPDATE track_segments SET device_id = NULL
+             WHERE device_id IS NOT NULL AND device_id NOT IN (SELECT id FROM devices)`);
     db.exec('DELETE FROM deliveries WHERE trip_id NOT IN (SELECT id FROM trips)');
     db.exec(`UPDATE deliveries SET load_record_id = NULL
              WHERE load_record_id IS NOT NULL AND load_record_id NOT IN (SELECT id FROM records)`);
@@ -177,9 +215,8 @@ function backfillDeliveries(db) {
 }
 
 function seedActions(db) {
-  const count = db.prepare('SELECT count(*) AS count FROM actions').get().count;
-  if (count > 0) return;
-  const insert = db.prepare('INSERT INTO actions (name) VALUES (?)');
+  // Додає відсутні дії (INSERT OR IGNORE), щоб нові дії з'являлись і в старих БД
+  const insert = db.prepare('INSERT OR IGNORE INTO actions (name) VALUES (?)');
   DEFAULT_ACTIONS.forEach(a => insert.run(a));
 }
 
@@ -191,9 +228,12 @@ function initSchema(db) {
   addColumnIfMissing(db, 'records', 'trip_id', 'INTEGER REFERENCES trips(id) ON DELETE SET NULL');
   addColumnIfMissing(db, 'records', 'delivery_id', 'INTEGER REFERENCES deliveries(id) ON DELETE SET NULL');
   addColumnIfMissing(db, 'records', 'client_uuid', 'TEXT');
+  addColumnIfMissing(db, 'records', 'source', "TEXT DEFAULT 'manual'");
+  addColumnIfMissing(db, 'records', 'device_id', 'INTEGER REFERENCES devices(id) ON DELETE SET NULL');
   addColumnIfMissing(db, 'trips', 'notes', 'TEXT');
 
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_records_client_uuid ON records(client_uuid) WHERE client_uuid IS NOT NULL');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_track_client_uuid ON track_segments(client_uuid) WHERE client_uuid IS NOT NULL');
 
   cleanupOrphans(db);
   db.pragma('foreign_keys = ON');

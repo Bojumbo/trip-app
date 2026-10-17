@@ -1,12 +1,15 @@
-﻿/* Service Worker — офлайн-режим */
+﻿﻿/* Service Worker — офлайн-режим */
 
-const CACHE_NAME = 'trip-tracker-v6';
+const CACHE_NAME = 'trip-tracker-v7';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
   '/vendor/chart.umd.min.js',
+  '/vendor/maplibre-gl.js',
+  '/vendor/maplibre-gl.css',
+  '/vendor/pmtiles.js',
   '/manifest.json',
   '/icon.svg',
   '/icon-180.png',
@@ -44,46 +47,44 @@ self.addEventListener('fetch', (event) => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;   // сторонні ресурси не чіпаємо
-  if (url.pathname.startsWith('/api/')) return;      // API — завжди мережа
+  if (url.pathname.startsWith('/api/')) return;      // API — завди мережа
 
-  // Навігація: спочатку мережа (щоб оновлення доходили), потім кеш
-  if (request.mode === 'navigate') {
+  // Офлайн-карта регіону: великий файл із Range-запитами — кешувати не можна
+  if (url.pathname.startsWith('/tiles/')) return;
+  // Partial content (Range) кешуємо лише коли весь відповід уже в кеші
+  if (request.headers.has('range')) {
     event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', clone)).catch(() => {});
-          return response;
-        })
-        .catch(async () => {
-          const cached = await caches.match('/index.html');
-          return cached || new Response(
-            '<!DOCTYPE html><meta charset="utf-8"><p style="font-family:sans-serif;padding:24px">Офлайн. Сторінка недоступна — відкрийте застосунок пізніше.</p>',
-            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
-          );
-        })
+      caches.match(request).then((cached) => cached || fetch(request))
     );
     return;
   }
 
-  // Статика: кеш → мережа з оновленням кешу
+  // Навігація та статика: спочатку мережа (оновлення доходять одразу),
+  // офлайн — з кешу. Так виключно «застарілий код після релізу».
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
-        .then((response) => {
-          if (response && response.status === 200) {
-            const clone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
-          }
-          return response;
-        })
-        .catch(() => cached || new Response('Offline', {
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && response.type === 'basic') {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request)
+          || (request.mode === 'navigate' ? await caches.match('/index.html') : undefined);
+        if (cached) return cached;
+        if (request.mode === 'navigate') {
+          return new Response(
+            '<!DOCTYPE html><meta charset="utf-8"><p style="font-family:sans-serif;padding:24px">Офлайн. Сторінка недоступна — відкрийте застосунок пізніше.</p>',
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        }
+        return new Response('Offline', {
           status: 504,
           statusText: 'Offline',
           headers: { 'Content-Type': 'text/plain; charset=utf-8' }
-        }));
-
-      return cached || network;
-    })
+        });
+      })
   );
 });

@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">Trip Tracker</string>
+    <string name="channel_tracker">Трекінг рейсу</string>
+    <string name="channel_pause">Зупинки</string>
+    <string name="notif_title">Trip Tracker</string>
+    <string name="notif_stop_title">Зупинка</string>
+    <string name="pause_title">Це пауза?</string>
+    <string name="pause_yes">Пауза</string>
+    <string name="pause_no">Не пауза</string>
+</resources>

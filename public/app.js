@@ -116,6 +116,12 @@ function toggleTheme() {
 }
 function setTheme(t, reload = true) {
   document.documentElement.setAttribute('data-theme', t);
+  // Карта маршруту читає колір фону з теми — перефарбовуємо, якщо вона відкрита
+  if (typeof trackState !== 'undefined' && trackState.map && trackState.map.getLayer('bg')) {
+    try {
+      trackState.map.setPaintProperty('bg', 'background-color', t === 'dark' ? '#111a2b' : '#e9eef5');
+    } catch { /* ignore */ }
+  }
   localStorage.setItem(THEME_KEY, t);
   const btn = $('themeBtn');
   if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
@@ -135,6 +141,7 @@ function openModal(id) {
   if (focusable) setTimeout(() => focusable.focus(), 50);
 }
 function closeModal(id) {
+  if (id === 'trackModal') destroyTrackMap();
   const modal = $(id);
   if (!modal) return;
   modal.style.display = 'none';
@@ -1357,6 +1364,8 @@ function renderTripsReport(trips, unassigned) {
           <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
             ${isActive ? `<button class="btn btn-secondary" style="padding:5px 10px; font-size:0.8rem;"
                 data-action="open-complete-trip" data-trip-id="${escapeHtml(trip.id)}">🏁 Завершити</button>` : ''}
+            <button class="btn btn-secondary" style="padding:5px 10px; font-size:0.8rem;"
+                    data-action="open-track" data-trip-id="${escapeHtml(trip.id)}" title="Маршрут рейсу" aria-label="Маршрут рейсу">🗺️</button>
             <button class="btn btn-secondary" style="padding:5px 8px; font-size:0.8rem;"
                     data-action="open-edit-trip" data-trip-id="${escapeHtml(trip.id)}" title="Редагувати рейс" aria-label="Редагувати рейс">✏️</button>
             <span style="font-size:1rem; color:var(--text-muted);">▼</span>
@@ -1543,6 +1552,7 @@ function renderShiftBlock(item, uid) {
             <div class="shift-event-row">
               <div style="flex:1; min-width:0;">
                 <b>${escapeHtml(ev.action)}</b> <span style="color:var(--text-muted);">(${escapeHtml(ev.time)})</span>
+                ${ev.source === 'auto' ? '<span class="badge badge-auto" title="Створено автоматично трекером">🤖 авто</span>' : ''}
                 ${ev.odometer ? ` — <span style="color:var(--primary);">${fmtNum(ev.odometer)} км</span>` : ''}
                 ${ev.location ? ` | ${escapeHtml(ev.location)}` : ''}
                 ${ev.comment ? `<div style="color:var(--text-muted); font-size:0.8rem; white-space:pre-line; margin-top:2px;">${escapeHtml(ev.comment)}</div>` : ''}
@@ -1886,7 +1896,497 @@ function renderAnalyticsDashboard(records) {
 }
 
 // =========================================================
+// МАРШРУТ РЕЙСУ (MapLibre + PMTiles)
+// =========================================================
+const trackState = {
+  map: null,
+  tripId: null,
+  loading: false,
+  libsReady: false,
+  protocolAdded: false,
+  tilesAvailable: null
+};
+
+/** Ліниве підключення js/css — карти не тяжнуть основний екран. */
+function loadScriptOnce(url) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${url}"]`)) return resolve();
+    const s = document.createElement('script');
+    s.src = url;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Не вдалося завантажити ' + url));
+    document.head.appendChild(s);
+  });
+}
+
+function loadStyleOnce(url) {
+  return new Promise((resolve) => {
+    if (document.querySelector(`link[href="${url}"]`)) return resolve();
+    const l = document.createElement('link');
+    l.rel = 'stylesheet';
+    l.href = url;
+    l.onload = resolve;
+    l.onerror = resolve; // карта працює і без CSS, просто гірше виглядає
+    document.head.appendChild(l);
+  });
+}
+
+/** Декодер Google encoded polyline (точність 5 знаків). */
+function decodePolyline(str) {
+  const points = [];
+  let index = 0, lat = 0, lng = 0;
+  const factor = 1e5;
+
+  while (index < str.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lat += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    shift = 0; result = 0;
+    do {
+      b = str.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    lng += (result & 1) ? ~(result >> 1) : (result >> 1);
+
+    points.push([lng / factor, lat / factor]);
+  }
+  return points;
+}
+
+const TRACK_STYLE = {
+  drive: { 'line-color': '#2563eb', 'line-width': 5 },
+  walk: { 'line-color': '#f59e0b', 'line-width': 3, 'line-dasharray': [1.5, 1.5] },
+  still: { 'line-color': '#6b7280', 'line-width': 2, 'line-dasharray': [0.4, 2] },
+  nosignal: { 'line-color': '#9ca3af', 'line-width': 2, 'line-dasharray': [0.4, 3] }
+};
+const TRACK_TITLES = { drive: 'Рух авто', walk: 'Ходьба', still: 'Стан', nosignal: 'Немає сигналу' };
+
+function trackSegmentPaint(mode) {
+  return Object.assign({ 'line-opacity': 0.95 }, TRACK_STYLE[mode] || TRACK_STYLE.drive);
+}
+
+function fmtDuration(sec) {
+  if (!Number.isFinite(sec) || sec <= 0) return '—';
+  const h = Math.floor(sec / 3600);
+  const m = Math.round((sec % 3600) / 60);
+  if (h > 0) return `${h} год ${String(m).padStart(2, '0')} хв`;
+  if (m > 0) return `${m} хв`;
+  return `${Math.max(1, Math.round(sec / 60))} хв`;
+}
+
+function parseCoords(raw) {
+  const m = /^\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)\s*$/.exec(String(raw || ''));
+  if (!m) return null;
+  const lat = Number(m[1]);
+  const lon = Number(m[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
+  return [lon, lat];
+}
+
+async function checkTilesAvailable() {
+  if (trackState.tilesAvailable !== null) return trackState.tilesAvailable;
+  try {
+    const info = await (await fetch('/api/tiles', { credentials: 'same-origin' })).json();
+    trackState.tilesAvailable = !!info.available;
+  } catch {
+    trackState.tilesAvailable = false;
+  }
+  return trackState.tilesAvailable;
+}
+
+async function openTrackModal(tripId) {
+  const id = Number(tripId);
+  if (!Number.isInteger(id) || id <= 0) return;
+  if (trackState.loading) return;
+
+  openModal('trackModal');
+  trackState.loading = true;
+  trackState.tripId = id;
+
+  const statsEl = $('trackStats');
+  const mapEl = $('trackMap');
+  const emptyEl = $('trackEmpty');
+  if (statsEl) statsEl.style.display = 'none';
+  if (mapEl) mapEl.style.display = 'block';
+  if (emptyEl) emptyEl.style.display = 'none';
+  mapEl.innerHTML = '<div style="display:flex; align-items:center; justify-content:center; height:100%; color:var(--text-muted); font-size:0.85rem;">Завантаження маршруту…</div>';
+  $('trackModalSubtitle').textContent = 'Збір даних…';
+
+  try {
+    const [track, details] = await Promise.all([
+      api(`/api/trips/${id}/track`),
+      api(`/api/trips/${id}/details`)
+    ]);
+
+    const trip = details.trip || {};
+    const segments = (track.segments || []).filter(s => s.polyline && String(s.polyline).length > 2);
+    const records = (details.records || []).map(r => ({ r, c: parseCoords(r.coords) })).filter(x => x.c);
+
+    $('trackModalSubtitle').textContent = `#${id} ${trip.name || ''} · ${trip.start_date || ''}`
+      + (trip.end_date ? ` → ${trip.end_date}` : '');
+
+    if (segments.length === 0 && records.length === 0) {
+      mapEl.style.display = 'none';
+      emptyEl.style.display = 'block';
+      return;
+    }
+
+    if (!trackState.libsReady) {
+      await Promise.all([
+        loadStyleOnce('/vendor/maplibre-gl.css'),
+        loadScriptOnce('/vendor/pmtiles.js'),
+        loadScriptOnce('/vendor/maplibre-gl.js')
+      ]);
+      trackState.libsReady = true;
+    }
+
+    renderTrackStats(segments);
+    renderTrackMap(id, segments, records);
+  } catch (e) {
+    mapEl.innerHTML = `<div style="padding:20px; color:var(--danger); font-size:0.85rem;">Помилка: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    trackState.loading = false;
+  }
+}
+
+function renderTrackStats(segments) {
+  const statsEl = $('trackStats');
+  if (!statsEl) return;
+
+  let driveM = 0;
+  let walkM = 0;
+  const secs = { drive: 0, walk: 0, still: 0, nosignal: 0 };
+
+  segments.forEach((s) => {
+    const dur = Math.max(0, (Number(s.ended_at) - Number(s.started_at)) / 1000);
+    const dist = Number(s.distance_m) || 0;
+    if (s.mode === 'walk') { secs.walk += dur; walkM += dist; }
+    else if (s.mode === 'still') { secs.still += dur; }
+    else if (s.mode === 'nosignal') { secs.nosignal += dur; }
+    else { secs.drive += dur; driveM += dist; }
+  });
+
+  const total = secs.drive + secs.walk + secs.still + secs.nosignal;
+  const km = m => (m / 1000).toFixed(1);
+
+  const items = [
+    { label: 'У русі', value: fmtDuration(secs.drive), hint: `${km(driveM)} км` },
+    { label: 'Ходьба', value: fmtDuration(secs.walk), hint: `${km(walkM)} км` },
+    { label: 'Стан', value: fmtDuration(secs.still) },
+    { label: 'Без сигналу', value: fmtDuration(secs.nosignal) },
+    { label: 'Всього', value: fmtDuration(total), hint: `${segments.length} сегм.` }
+  ];
+
+  statsEl.innerHTML = items.map(it => `
+    <div class="track-stat">
+      <div class="track-stat-value">${escapeHtml(it.value)}</div>
+      <div class="track-stat-label">${escapeHtml(it.label)}${it.hint ? ` · ${escapeHtml(it.hint)}` : ''}</div>
+    </div>`).join('');
+  statsEl.style.display = 'grid';
+}
+
+function buildTrackFeatures(segments, records) {
+  const features = [];
+  segments.forEach((s) => {
+    const coords = decodePolyline(String(s.polyline));
+    if (coords.length < 2) return;
+    features.push({
+      type: 'Feature',
+      properties: {
+        kind: 'segment',
+        mode: s.mode,
+        started_at: Number(s.started_at) || 0,
+        ended_at: Number(s.ended_at) || 0,
+        distance_m: Number(s.distance_m) || 0,
+        points: Number(s.points) || coords.length
+      },
+      geometry: { type: 'LineString', coordinates: coords }
+    });
+  });
+
+  records.forEach(({ r, c }) => {
+    features.push({
+      type: 'Feature',
+      properties: {
+        kind: 'record',
+        action: r.action || '',
+        date: r.date || '',
+        time: r.time || '',
+        odometer: r.odometer || '',
+        is_reported: Number(r.is_reported) === 1 ? 1 : 0
+      },
+      geometry: { type: 'Point', coordinates: c }
+    });
+  });
+
+  return features;
+}
+
+/**
+ * Обгортка DOM-елемента в контрол MapLibre (onAdd/onRemove обов'язкові).
+ */
+function asMapControl(element) {
+  let mapRef = null;
+  return {
+    onAdd(map) {
+      mapRef = map;
+      element.style.pointerEvents = 'auto';
+      return element;
+    },
+    onRemove() {
+      if (mapRef) {
+        const c = mapRef.getContainer();
+        if (element.parentNode === c) c.removeChild(element);
+      }
+      mapRef = null;
+    }
+  };
+}
+
+/**
+ * Рахує межі для вибраного набору: 'all' | 'track' | 'records'.
+ * Трек — головний вміст, тому має власну кнопку: якщо трек не покриває весь рейс,
+ * «увесь маршрут» робить його невидимим на великих відстанях.
+ */
+function fitToFeatures(map, features, mode = 'all') {
+  const Bounds = window.maplibregl.LngLatBounds;
+  const b = new Bounds();
+  let count = 0;
+
+  features.forEach(f => {
+    const isTrack = f.properties && f.properties.kind === 'segment';
+    if (mode === 'track' && !isTrack) return;
+    if (mode === 'records' && isTrack) return;
+
+    const g = f.geometry;
+    if (g.type === 'Point') { b.extend(g.coordinates); count++; }
+    else g.coordinates.forEach(c => { b.extend(c); count++; });
+  });
+
+  if (count > 0) {
+    map.fitBounds(b, { padding: 44, maxZoom: 16, duration: 0 });
+    return true;
+  }
+  return false;
+}
+
+function trackFitControls(map, features) {
+  const hasTrack = features.some(f => f.properties && f.properties.kind === 'segment');
+  const hasRecords = features.some(f => f.properties && f.properties.kind === 'record');
+
+  const modes = [];
+  if (hasTrack && hasRecords) modes.push(['all', '🗺️ Весь маршрут']);
+  if (hasTrack) modes.push(['track', '🛣️ Трек']);
+  if (hasRecords) modes.push(['records', '📍 Записи']);
+
+  const host = document.createElement('div');
+  host.className = 'track-fit';
+
+  modes.forEach(([mode, label]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.dataset.fit = mode;
+    if (mode === 'all') btn.classList.add('active');
+    btn.addEventListener('click', () => {
+      host.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      fitToFeatures(map, features, mode);
+    });
+    host.appendChild(btn);
+  });
+
+  return host;
+}
+
+async function renderTrackMap(tripId, segments, records) {
+  const features = buildTrackFeatures(segments, records);
+  if (features.length === 0) return;
+
+  const mapEl = $('trackMap');
+  if (mapEl) mapEl.innerHTML = '';
+
+  const hasTiles = await checkTilesAvailable();
+  const ml = window.maplibregl;
+
+  if (hasTiles && window.pmtiles && !trackState.protocolAdded) {
+    try {
+      ml.addProtocol('pmtiles', new window.pmtiles.Protocol().tile);
+      trackState.protocolAdded = true;
+    } catch { /* без підкладки — лише трек */ }
+  }
+
+  // Фон під треком: у темній темі — глибокий сірий, інакше світлий.
+  const mapBg = document.documentElement.getAttribute('data-theme') === 'dark'
+    ? '#111a2b'
+    : '#e9eef5';
+
+  const layers = [{
+    id: 'bg',
+    type: 'background',
+    paint: { 'background-color': mapBg }
+  }];
+
+  layers.push({
+    id: 'track-drive',
+    type: 'line',
+    source: 'track',
+    filter: ['==', ['get', 'mode'], 'drive'],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: trackSegmentPaint('drive')
+  });
+  layers.push({
+    id: 'track-walk',
+    type: 'line',
+    source: 'track',
+    filter: ['==', ['get', 'mode'], 'walk'],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: trackSegmentPaint('walk')
+  });
+  layers.push({
+    id: 'track-still',
+    type: 'line',
+    source: 'track',
+    filter: ['==', ['get', 'mode'], 'still'],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: trackSegmentPaint('still')
+  });
+  layers.push({
+    id: 'track-nosignal',
+    type: 'line',
+    source: 'track',
+    filter: ['==', ['get', 'mode'], 'nosignal'],
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint: trackSegmentPaint('nosignal')
+  });
+  layers.push({
+    id: 'track-records',
+    type: 'circle',
+    source: 'track',
+    filter: ['==', ['get', 'kind'], 'record'],
+    paint: {
+      'circle-radius': 5.5,
+      'circle-color': '#ffffff',
+      'circle-stroke-width': 2.5,
+      'circle-stroke-color': '#dc2626'
+    }
+  });
+
+  const style = {
+    version: 8,
+    sources: {
+      track: { type: 'geojson', data: { type: 'FeatureCollection', features } }
+    },
+    layers
+  };
+
+  if (hasTiles) {
+    style.sources.region = { type: 'vector', url: 'pmtiles:///tiles/region.pmtiles' };
+  }
+
+  const map = new ml.Map({
+    container: 'trackMap',
+    style,
+    attributionControl: false,
+    cooperativeGestures: false,
+    fadeDuration: 0,
+    dragRotate: false,
+    pitchWithRotate: false
+  });
+
+  map.addControl(new ml.NavigationControl({ showCompass: false }), 'top-right');
+  fitToFeatures(map, features, 'all');
+
+  map.addControl(asMapControl(trackFitControls(map, features)), 'top-left');
+  // Офлайн-підкладка регіону: додаємо її шарами під трек
+  if (hasTiles) {
+    map.on('load', () => {
+      try {
+        const src = map.getSource('region');
+        const ids = src && src.vectorLayerIds ? src.vectorLayerIds() : [];
+        ids.forEach((name, i) => {
+          const layerId = `region-${name}`;
+          if (map.getLayer(layerId)) return;
+          map.addLayer({
+            id: layerId,
+            type: 'line',
+            source: 'region',
+            'source-layer': name,
+            paint: {
+              'line-color': '#c7d2e0',
+              'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 15, 1.6]
+            }
+          }, 'track-drive');
+        });
+      } catch { /* без підкладки — лише трек */ }
+    });
+  }
+
+  // Підказки
+  const popup = new ml.Popup({ closeButton: false, offset: 10, className: 'track-popup' });
+  const fmtTime = ts => {
+    if (!ts) return '';
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('uk-UA', { hour12: false });
+  };
+
+  ['drive', 'walk', 'still', 'nosignal'].forEach((mode) => {
+    map.on('mouseenter', `track-${mode}`, (e) => {
+      map.getCanvas().style.cursor = 'pointer';
+      const f = e.features && e.features[0];
+      if (!f) return;
+      const p = f.properties || {};
+      const sec = Math.max(0, (p.ended_at - p.started_at) / 1000);
+      popup.setLngLat(e.lngLat).setHTML(
+        `<b>${TRACK_TITLES[mode]}</b><br>${escapeHtml(fmtTime(p.started_at))} — ${escapeHtml(fmtTime(p.ended_at))}<br>`
+        + `${fmtDuration(sec)} · ${(p.distance_m / 1000).toFixed(2)} км`
+      ).addTo(map);
+    });
+    map.on('mouseleave', `track-${mode}`, () => {
+      map.getCanvas().style.cursor = '';
+      popup.remove();
+    });
+  });
+
+  map.on('mouseenter', 'track-records', (e) => {
+    map.getCanvas().style.cursor = 'pointer';
+    const f = e.features && e.features[0];
+    if (!f) return;
+    const p = f.properties || {};
+    popup.setLngLat(e.lngLat).setHTML(
+      `<b>${escapeHtml(p.action || 'Запис')}</b><br>${escapeHtml(p.date)} ${escapeHtml(p.time)}`
+      + (p.odometer ? `<br>${escapeHtml(String(p.odometer))} км` : '')
+    ).addTo(map);
+  });
+  map.on('mouseleave', 'track-records', () => {
+    map.getCanvas().style.cursor = '';
+    popup.remove();
+  });
+
+  if (trackState.map) {
+    try { trackState.map.remove(); } catch { /* ignore */ }
+  }
+  trackState.map = map;
+}
+
+function destroyTrackMap() {
+  if (trackState.map) {
+    try { trackState.map.remove(); } catch { /* ignore */ }
+    trackState.map = null;
+  }
+  trackState.tripId = null;
+}
+
+// =========================================================
 // ДЕЛЕГОВАНІ ПОДІЇ
+// =========================================================
 // =========================================================
 const clickActions = {
   'switch-tab': (el) => switchTab(el.dataset.tab),
@@ -1913,6 +2413,7 @@ const clickActions = {
     const name = el.dataset.tripName || (trip ? trip.name : '');
     openCompleteTripModal(id, name);
   },
+  'open-track': (el) => openTrackModal(el.dataset.tripId),
   'open-edit-trip': (el) => openEditTripModal(el.dataset.tripId),
   'delete-trip': () => deleteTrip(),
   'delete-delivery': (el) => deleteDelivery(Number(el.dataset.deliveryId)),

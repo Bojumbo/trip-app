@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Trip Tracker"
+            android:textSize="22sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Трекер рейсу для водія"
+            android:textSize="13sp"
+            android:paddingBottom="12dp" />
+
+        <TextView android:text="Адреса сервера" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textStyle="bold" />
+        <EditText
+            android:id="@+id/etServer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textUri"
+            android:hint="https://trip.bojumbohost.pp.ua" />
+
+        <TextView android:text="Токен пристрою (з веб-застосунку)" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textStyle="bold" android:paddingTop="8dp" />
+        <EditText
+            android:id="@+id/etToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="textNoSuggestion" />
+
+        <TextView android:text="Назва пристрою" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textStyle="bold" android:paddingTop="8dp" />
+        <EditText
+            android:id="@+id/etName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="text" />
+
+        <TextView android:text="Поріг зупинки, хв" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textStyle="bold" android:paddingTop="8dp" />
+        <EditText
+            android:id="@+id/etStopMinutes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number" />
+
+        <Button
+            android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Увімкнути трекінг" />
+
+        <Button
+            android:id="@+id/btnPermissions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Дозволити фон і сповіщення" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:textSize="13sp"
+            android:text="" />
+
+        <TextView
+            android:id="@+id/tvQueue"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textSize="12sp"
+            android:text="" />
+
+    </LinearLayout>
+</ScrollView>

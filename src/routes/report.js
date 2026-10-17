@@ -4,8 +4,10 @@ const express = require('express');
 const db = require('../db');
 const { ApiError } = require('../lib/errors');
 const { LIMITS } = require('../config');
+const { requireSession } = require('../lib/sessions');
 
 const router = express.Router();
+router.use(requireSession);
 
 /**
  * Агрегований звіт: один запит замість N+1.

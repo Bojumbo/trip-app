@@ -40,7 +40,8 @@ const LIMITS = {
   reportRecords: 20000,
   unassignedPreview: 200,
   pageSize: 500,
-  bulkReportIds: 1000
+  bulkReportIds: 1000,
+  trackBatch: 50
 };
 
 function resolveAdminPassword() {

@@ -75,7 +75,22 @@ function verifyPassword(input, stored) {
   return crypto.timingSafeEqual(a, b);
 }
 
+/**
+ * Авторизація: cookie-сесія (веб) АБО Bearer-токен пристрою (Android-трекер).
+ * Пристрій отримує лише ті ендпоінти, які йому дозволені через requireSession.
+ */
 function authMiddleware(req, res, next) {
+  const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
+  if (bearer) {
+    const device = db.prepare('SELECT * FROM devices WHERE token_hash = ?').get(hashToken(bearer[1].trim()));
+    if (!device) return res.status(401).json({ error: 'Невірний токен пристрою' });
+
+    db.prepare('UPDATE devices SET last_seen = ? WHERE id = ?').run(Date.now(), device.id);
+    req.device = device;
+    req.actor = 'device';
+    return next();
+  }
+
   const token = parseCookies(req.headers.cookie)[COOKIE_NAME];
   if (!token) return res.status(401).json({ error: 'Не авторизовано' });
 
@@ -95,7 +110,22 @@ function authMiddleware(req, res, next) {
   }
 
   req.session = row;
+  req.actor = 'session';
   next();
+}
+
+/** Пропускає лише веб-сесію (керування рейсами, пристроями, звітами). */
+function requireSession(req, res, next) {
+  if (req.actor === 'device') {
+    return res.status(403).json({ error: 'Дія доступна лише з веб-застосунку' });
+  }
+  next();
+}
+
+/** Генерує токен пристрою; повертає пару «сирий токен / хеш для БД». */
+function createDeviceToken() {
+  const token = crypto.randomBytes(32).toString('hex');
+  return { token, hash: hashToken(token) };
 }
 
 function cleanupExpiredSessions() {
@@ -106,8 +136,10 @@ module.exports = {
   parseCookies,
   hashToken,
   createSession,
+  createDeviceToken,
   destroySession,
   verifyPassword,
   authMiddleware,
+  requireSession,
   cleanupExpiredSessions
 };

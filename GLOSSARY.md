@@ -14,12 +14,19 @@
 | **Офлайн-черга** | Записи, збережені в `localStorage`, коли немає мережі; синхронізуються при появі зв'язку | `trip_offline_queue`, `syncOfflineQueue()` |
 | **«Поза доставками»** | Записи рейсу, не прив'язані до жодної доставки (паузи, зміни) | блок у звіті |
 | **«Без рейсу»** | Записи з `trip_id = NULL` — створені, коли активного рейсу не було | блок «⚠️ Записи без рейсу» |
+| **PMTiles** | Офлайн-архів тайлів карти регіону; лежить у `tiles/region.pmtiles`, не в git | `docs/TRACKING-MAP.md` |
+| **Пристрій** (device) | Android-трекер; ходить в API з Bearer-токеном замість cookie | `devices`, `src/routes/devices.js` |
+| **Сегмент маршруту** | Шмат треку одного режиму + encoded polyline | `track_segments`, `src/routes/track.js` |
+| **Автопауза** | Запис із `source='auto'` — створений трекером. У звіті з позначкою «🤖 авто» | `records.source` |
+| **Продовження руху** | Дія, яку трекер пише, коли авто знову рушилось (>15 км/год упродовж 60 с) | `actions`, `DEFAULT_ACTIONS` |
 | **CMR** | Міжнародна товарно-транспортна накладна; номер пишемо в полі «Вантаж / № CMR» | поле `cargo` |
 
 ## Статуси
 
 | Сутність | Значення | Значення українською |
 |----------|----------|----------------------|
+| `track_segments.mode` | `drive` / `walk` / `still` / `nosignal` | авто / пішки / стоїть / немає сигналу |
+| `records.source` | `manual` / `auto` | вручну / створено трекером |
 | `trips.status` | `active` / `completed` | активний / завершений |
 | `deliveries.status` | `in_transit` / `delivered` / `incomplete` | в дорозі / доставлено / не завершено (рейс закрили з відкритою доставкою) |
 
@@ -30,7 +37,8 @@
 - `app.createApp()` — збирає Express, **не** слухає порт (тому тести можуть підняти свій інстанс).
 - `lib/validate` — `isValidDate`, `isValidTime`, `parseBool`, `parseInteger`, `validateRecordInput`.
 - `lib/security` — `securityHeaders`, `csrfGuard`, `resolveTrustProxy`, `isPrivateAddress`.
-- `lib/sessions` — `createSession`, `authMiddleware`, `verifyPassword`.
+- `lib/sessions` — `createSession`, `createDeviceToken`, `authMiddleware`, `requireDevice`, `verifyPassword`.
+- `lib/geo` — `haversineM`, `nearestPointM` (дедуплікація автопауз: ±5 хв, ~200 м).
 - `services/records` — `insertRecord`, `deleteRecord` (уся логіка доставок тут, не в роутах).
 
 **API (усі під `/api`, крім `/health` і `/login`)**
@@ -46,7 +54,13 @@ PATCH  /deliveries/:id DELETE /deliveries/:id
 GET    /records  /records/all
 POST   /records  /records/bulk-import  /records/bulk-report-status
 PUT    /records/:id    PATCH /records/:id/report-status   DELETE /records/:id
+GET    /tiles                  публічний: чи є офлайн-карта region.pmtiles (без авторизації)
+GET    /trips/:id/track        сегменти маршруту рейсу (полілінії)
 GET    /report                 агрегований звіт (trips + deliveries + records + unassigned)
+
+# Пристрої (Bearer-токен, не cookie)
+GET    /devices/me             стан пристрої + активний рейс + останній одометр
+POST   /track/segments         прийом сегментів маршруту (batch до 20)
 ```
 
 **Фронтенд (`public/app.js`)**
@@ -54,6 +68,11 @@ GET    /report                 агрегований звіт (trips + deliveri
 - `api(path, opts)` — єдина точка запитів; кидає `ApiError`, на 401 показує екран входу.
 - `data-action="..."` — будь-яка дія в розмітці. Обробники в `clickActions` / `changeActions` / `inputActions`.
 - `recordsCache` — `Map` записів для модалки редагування (наповнюється з `/api/report` і таблиці).
+- `openTrackModal(tripId)` — модалка маршруту; ліниво підтягує `/vendor/{pmtiles,maplibre-gl}.js`.
+- `decodePolyline(str)` — декодер Google encoded polyline → `[lon, lat][]`.
+- `trackState` — поточний `maplibregl.Map`, `loading`, `tripId`; `destroyTrackMap()` при закритті модалки.
+- `renderTrackMap()` — будує GeoJSON, шари `track-drive/walk/still/nosignal`, точки `track-records`,
+  підкладку `region-*` і перемикач `track-fit` (all / track / records).
 - `reportTripsCache` — рейси для модалок завершення/редагування.
 - `showToast(text, type, ms)` — єдиний спосіб повідомити користувача (не `alert`).
 
@@ -84,4 +103,5 @@ GET    /report                 агрегований звіт (trips + deliveri
 
 **Версії**
 - `package.json` `version` = версія релізу; `CACHE_NAME` у `sw.js` збільшуємо при кожному релізі
-  (зараз `trip-tracker-v6`), інакше користувачі сидітимуть на старому кеші.
+  (зараз `trip-tracker-v7`), інакше користувачі сидітимуть на старому кеші.
+- `android/` — єдиний виняток із правила «без збірки» (див. DECISIONS 2026-10-17).

@@ -32,11 +32,12 @@ function insertRecord(input) {
     }
 
     const info = db.prepare(`
-      INSERT INTO records (date, time, odometer, action, location, comment, coords, is_reported, trip_id, delivery_id, client_uuid)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO records (date, time, odometer, action, location, comment, coords, is_reported, trip_id, delivery_id, client_uuid, source, device_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.date, input.time, input.odometer, input.action, input.location, input.comment,
-      input.coords, input.is_reported, tripId, deliveryId, input.client_uuid
+      input.coords, input.is_reported, tripId, deliveryId, input.client_uuid,
+      input.source || 'manual', input.device_id || null
     );
     const recordId = info.lastInsertRowid;
 

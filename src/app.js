@@ -12,11 +12,13 @@ const { createLimiter } = require('./lib/rate-limit');
 const { authMiddleware } = require('./lib/sessions');
 const { createAuthRoutes } = require('./routes/auth');
 
-const metaRoutes = require('./routes/meta');
+const { router: metaRoutes, publicTilesRouter } = require('./routes/meta');
 const tripsRoutes = require('./routes/trips');
 const deliveriesRoutes = require('./routes/deliveries');
 const recordsRoutes = require('./routes/records');
 const reportRoutes = require('./routes/report');
+const devicesRoutes = require('./routes/devices');
+const trackRoutes = require('./routes/track');
 
 /**
  * Збирає Express-застосунок. Не запускає сервер — це робить server.js,
@@ -61,13 +63,16 @@ function createApp(options = {}) {
     message: 'Перевищено ліміт запитів. Спробуйте за хвилину.'
   });
 
+  app.use('/api', publicTilesRouter);   // без авторизації: наявність офлайн-карти
   app.use('/api', apiLimiter, csrfGuard, authMiddleware);
 
   app.use('/api', metaRoutes);
+  app.use('/api/devices', devicesRoutes);
   app.use('/api/trips', tripsRoutes);
   app.use('/api/deliveries', deliveriesRoutes);
   app.use('/api/records', recordsRoutes);
   app.use('/api/report', reportRoutes);
+  app.use('/api/track', trackRoutes);
 
   // --- Статика ---
   const publicDir = path.join(config.ROOT, 'public');

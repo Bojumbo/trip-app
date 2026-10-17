@@ -69,7 +69,8 @@ function validateRecordInput(body = {}) {
     trip_id: body.trip_id ? Number(body.trip_id) : null,
     delivery_id: body.delivery_id ? Number(body.delivery_id) : null,
     cargo: cleanText(body.cargo, 255),
-    client_uuid: body.client_uuid ? cleanText(body.client_uuid, 64) : null
+    client_uuid: body.client_uuid ? cleanText(body.client_uuid, 64) : null,
+    source: body.source === 'auto' ? 'auto' : 'manual'
   };
 }
 

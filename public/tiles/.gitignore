@@ -1,0 +1,2 @@
+# Файли PMTiles не зберігаються в git — генеруються локально (див. docs/TRACKING-MAP.md)
+*.pmtiles

@@ -4,8 +4,10 @@ const express = require('express');
 const db = require('../db');
 const { ApiError } = require('../lib/errors');
 const { cleanText } = require('../lib/validate');
+const { requireSession } = require('../lib/sessions');
 
 const router = express.Router();
+router.use(requireSession);
 
 const ALLOWED_STATUSES = ['in_transit', 'delivered', 'incomplete'];
 

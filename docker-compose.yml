@@ -16,6 +16,9 @@ services:
       - TRUST_PROXY=${TRUST_PROXY:-}
     volumes:
       - ./data:/app/data
+      # Офлайн-карта регіону: region.pmtiles лежить на хості (див. docs/TRACKING-MAP.md).
+      # Її не можна тримати в образі — redeploy зітре файл, а сервіс-воркер не кешує /tiles/*.
+      - ./tiles:/app/public/tiles
     security_opt:
       - no-new-privileges:true
     healthcheck:
