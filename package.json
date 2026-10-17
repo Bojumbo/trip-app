@@ -11,7 +11,7 @@
     "start": "node server.js",
     "dev": "node --watch server.js",
     "test": "node --test",
-    "check": "node scripts/check-syntax.js"
+    "check": "node scripts/check-syntax.js && node scripts/check-android-res.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

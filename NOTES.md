@@ -30,6 +30,15 @@
 - Артефакт `trip-tracker-apk` живе 30 днів — завантажувати треба вчасно.
 - Один і той самий debug-підпис: оновлювати APK можна лише тим самим підписом.
 
+## Помилки ресурсів Android (AAPT)
+
+- `inputType="textNoSuggestion"` — **не існує**, правильний `textNoSuggestions`.
+  AAPT ловить це лише на linking ресурсів, тобто в CI, і падає весь `assembleDebug`.
+- Тому додано `scripts/check-android-res.js` (входить у `npm run check`): перевіряє
+  всі флаги `android:inputType` у `res/**` ще до збірки.
+- Лог збірки CI дублюється у гілку `ci-logs` (`logs/<run_id>.log`) — читається
+  звичайним `git fetch origin ci-logs`, бо API віддає артефакти лише адмінам.
+
 ## Залежності від середовища
 
 - `better-sqlite3` **вмикає `foreign_keys` за замовчуванням** (v7+), тож `CASCADE`
