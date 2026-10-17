@@ -89,7 +89,6 @@ const DDL = `
   CREATE INDEX IF NOT EXISTS idx_records_is_reported ON records(is_reported);
   CREATE INDEX IF NOT EXISTS idx_records_trip_id ON records(trip_id);
   CREATE INDEX IF NOT EXISTS idx_records_delivery_id ON records(delivery_id);
-  CREATE INDEX IF NOT EXISTS idx_records_source ON records(source);
   CREATE INDEX IF NOT EXISTS idx_trips_status ON trips(status);
   CREATE INDEX IF NOT EXISTS idx_deliveries_trip_id ON deliveries(trip_id);
   CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
@@ -234,6 +233,11 @@ function initSchema(db) {
 
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_records_client_uuid ON records(client_uuid) WHERE client_uuid IS NOT NULL');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_track_client_uuid ON track_segments(client_uuid) WHERE client_uuid IS NOT NULL');
+
+  // Індекси на колонки, додані міграцією вище, — ТІЛЬКИ тут.
+  // У DDL їх бути не може: на старій БД CREATE TABLE IF NOT EXISTS не виконується,
+  // колонки ще немає, і CREATE INDEX ... IF NOT EXISTS падає з «no such column».
+  db.exec('CREATE INDEX IF NOT EXISTS idx_records_source ON records(source)');
 
   cleanupOrphans(db);
   db.pragma('foreign_keys = ON');
