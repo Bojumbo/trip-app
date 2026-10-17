@@ -5,7 +5,7 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android.yml'
-  workflow_dispatch:
+  workflow_dispatch:      # можна запустити вручну з UI, без нового коміта
 
 jobs:
   build:
@@ -18,18 +18,54 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # android-actions/setup-android@v3 прибрано: він падає (deprecated).
+      # На раннерах Ubuntu Android SDK уже стоїть в /usr/local/lib/android/sdk,
+      # ANDROID_HOME заданий. Доставляємо лише те, чого може не вистачати.
+      - name: Доставити компоненти Android SDK
+        run: |
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          echo "ANDROID_HOME=$SDK"
+          echo "build-tools:"; ls "$SDK/build-tools" 2>/dev/null || echo "  немає"
+          echo "platforms:";   ls "$SDK/platforms"   2>/dev/null || echo "  немає"
+
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ -x "$SM" ]; then
+            yes | "$SM" --licenses > /dev/null 2>&1 || true
+            "$SM" "platform-tools" "platforms;android-34" "build-tools;34.0.0" \
+              || echo "::warning::sdkmanager не зміг доставити компоненти — сподіваємось на preinstalled"
+          else
+            echo "::warning::cmdline-tools не знайдено, покладаємось на preinstalled SDK"
+          fi
+
+      - name: Кеш Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle.properties') }}
+          restore-keys: gradle-${{ runner.os }}-
+
+      - name: Встановити Gradle
+        run: |
+          curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
+          unzip -q /tmp/gradle.zip -d /opt
+          echo "/opt/gradle-8.7/bin" >> "$GITHUB_PATH"
 
       - name: Build debug APK
         run: |
           cd android
-          chmod +x gradlew 2>/dev/null || true
-          gradle assembleDebug --no-daemon --stacktrace || \
-          (curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip && \
-           unzip -q /tmp/gradle.zip -d /opt && /opt/gradle-8.7/bin/gradle assembleDebug --no-daemon --stacktrace)
+          # Підстраховка: явно вказуємо Gradle, де шукати SDK
+          echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
+          gradle assembleDebug --no-daemon --stacktrace --warning-mode summary
+
+      - name: Показати розмір APK
+        run: |
+          ls -lh android/app/build/outputs/apk/debug/
 
       - uses: actions/upload-artifact@v4
         with:
           name: trip-tracker-apk
           path: android/app/build/outputs/apk/debug/*.apk
-          if-no-files-found: warn
+          if-no-files-found: error
+          retention-days: 30
