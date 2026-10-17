@@ -6,3 +6,6 @@ Thumbs.db
 npm-debug.log*
 .workbuddy-ai/
 tiles/*.pmtiles
+
+# Гілка з логами CI (створюється воркфлоу, вручну не редагується)
+ci-logs

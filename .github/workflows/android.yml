@@ -10,6 +10,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write          # щоб можна було записати лог у гілку ci-logs
     steps:
       - uses: actions/checkout@v4
 
@@ -66,8 +68,30 @@ jobs:
         run: |
           ls -lh android/app/build/outputs/apk/debug/ 2>/dev/null || echo "APK не зібрано"
 
-      # Лог завжди — щоб у разі червоного запуску можна було прочитати помилку,
-      # не маючи доступу до «Download log archive» (потрібні права адміна).
+      # Лог завжди — щоб у разі червоного запуску помилку можна було прочитати.
+      # API віддає артефакти лише з правами адміна, тому додатково копіюємо лог
+      # у гілку ci-logs: її видно будь-кому через git, без зайвих кліків.
+      - name: Зберегти лог у гілку ci-logs
+        if: always()
+        run: |
+          git config user.name "ci-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin "+refs/heads/ci-logs:refs/remotes/origin/ci-logs" || true
+
+          if git show-ref --verify --quiet refs/remotes/origin/ci-logs; then
+            git checkout -B ci-logs refs/remotes/origin/ci-logs
+          else
+            git checkout --orphan ci-logs
+            git rm -rf --cached . > /dev/null 2>&1 || true
+            find . -mindepth 1 -maxdepth 1 ! -name build.log -exec rm -rf {} + 2>/dev/null || true
+          fi
+
+          mkdir -p logs
+          cp build.log "logs/${{ github.run_id }}.log"
+          git add -f logs
+          git commit -m "log ${{ github.run_id }} (${{ github.sha }}) ${{ job.status }}" || exit 0
+          git push origin ci-logs
+
       - name: Вивантажити лог і APK
         if: always()
         uses: actions/upload-artifact@v4
