@@ -18,8 +18,8 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # android-actions/setup-android@v3 прибрано: він падає (deprecated).
-      # На раннерах Ubuntu Android SDK уже стоїть в /usr/local/lib/android/sdk,
+      # android-actions/setup-android@v3 прибрано: він deprecated і падає.
+      # На раннерах Ubuntu Android SDK уже стоїть у /usr/local/lib/android/sdk,
       # ANDROID_HOME заданий. Доставляємо лише те, чого може не вистачати.
       - name: Доставити компоненти Android SDK
         run: |
@@ -51,19 +51,37 @@ jobs:
           curl -sL https://services.gradle.org/distributions/gradle-8.7-bin.zip -o /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /opt
           echo "/opt/gradle-8.7/bin" >> "$GITHUB_PATH"
+          gradle --version
 
       - name: Build debug APK
         run: |
           cd android
           # Підстраховка: явно вказуємо Gradle, де шукати SDK
           echo "sdk.dir=${ANDROID_HOME:-/usr/local/lib/android/sdk}" > local.properties
-          gradle assembleDebug --no-daemon --stacktrace --warning-mode summary
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace --warning-mode summary 2>&1 | tee ../build.log
 
       - name: Показати розмір APK
+        if: always()
         run: |
-          ls -lh android/app/build/outputs/apk/debug/
+          ls -lh android/app/build/outputs/apk/debug/ 2>/dev/null || echo "APK не зібрано"
 
-      - uses: actions/upload-artifact@v4
+      # Лог завжди — щоб у разі червоного запуску можна було прочитати помилку,
+      # не маючи доступу до «Download log archive» (потрібні права адміна).
+      - name: Вивантажити лог і APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: |
+            build.log
+            android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Вивантажити APK (стабільне ім'я)
+        if: success()
+        uses: actions/upload-artifact@v4
         with:
           name: trip-tracker-apk
           path: android/app/build/outputs/apk/debug/*.apk
