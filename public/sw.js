@@ -1,66 +1,85 @@
-const CACHE_NAME = 'trip-tracker-v3';
+﻿/* Service Worker — офлайн-режим */
+
+const CACHE_NAME = 'trip-tracker-v5';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/style.css?v=3',
-  '/app.js?v=3',
+  '/style.css',
+  '/app.js',
+  '/vendor/chart.umd.min.js',
   '/manifest.json',
   '/icon.svg',
-  'https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js'
+  '/icon-180.png',
+  '/icon-512.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
-        console.warn('Не вдалося закешувати частину ресурсів при інсталяції:', err);
-      });
-    })
+    caches.open(CACHE_NAME).then(async (cache) => {
+      // Кешуємо поштучно: збій одного файлу не ламає весь офлайн-режим
+      await Promise.all(
+        STATIC_ASSETS.map(async (url) => {
+          try {
+            await cache.add(new Request(url, { cache: 'reload' }));
+          } catch (err) {
+            console.warn('[SW] Не вдалося закешувати', url);
+          }
+        })
+      );
+    }).then(() => self.skipWaiting())
   );
-  self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
-    })
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))))
+      .then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  const request = event.request;
+  if (request.method !== 'GET') return;
 
-  // Не кешуємо API запити у Service Worker (для API використовується LocalStorage черга)
-  if (url.pathname.startsWith('/api/')) {
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;   // сторонні ресурси не чіпаємо
+  if (url.pathname.startsWith('/api/')) return;      // API — завжди мережа
+
+  // Навігація: спочатку мережа (щоб оновлення доходили), потім кеш
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', clone)).catch(() => {});
+          return response;
+        })
+        .catch(async () => {
+          const cached = await caches.match('/index.html');
+          return cached || new Response(
+            '<!DOCTYPE html><meta charset="utf-8"><p style="font-family:sans-serif;padding:24px">Офлайн. Сторінка недоступна — відкрийте застосунок пізніше.</p>',
+            { headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        })
+    );
     return;
   }
 
+  // Статика: кеш → мережа з оновленням кешу
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      if (cachedResponse) {
-        fetch(event.request).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse));
+    caches.match(request).then((cached) => {
+      const network = fetch(request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {});
           }
-        }).catch(() => {});
-        return cachedResponse;
-      }
+          return response;
+        })
+        .catch(() => cached);
 
-      return fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200 && (url.origin === location.origin || url.hostname.includes('cdn.jsdelivr.net'))) {
-          const clone = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
-        return networkResponse;
-      }).catch(() => {
-        if (event.request.mode === 'navigate') {
-          return caches.match('/');
-        }
-      });
+      return cached || network;
     })
   );
 });

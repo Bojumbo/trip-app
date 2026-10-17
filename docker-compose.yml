@@ -1,16 +1,31 @@
-version: '3.8'
-
 services:
   trip-tracker:
     build: .
     container_name: trip-tracker
     restart: unless-stopped
+    init: true
     ports:
-      - "${HOST_PORT:-8851}:${PORT:-8851}"
+      # HOST_BIND=127.0.0.1 — якщо cloudflared запущений на хості (рекомендовано).
+      # HOST_BIND=0.0.0.0 — якщо cloudflared це окремий контейнер у власній мережі.
+      - "${HOST_BIND:-0.0.0.0}:${HOST_PORT:-8851}:${PORT:-8851}"
     environment:
       - NODE_ENV=production
       - PORT=${PORT:-8851}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Будь ласка, вкажіть ADMIN_PASSWORD у файлі .env}
-      - JWT_SECRET=${JWT_SECRET:?Будь ласка, вкажіть JWT_SECRET у файлі .env}
+      # TRUST_PROXY: 0/1/число хопів. Порожнє значення = довіряти лише приватним адресам (cloudflared).
+      - TRUST_PROXY=${TRUST_PROXY:-}
     volumes:
       - ./data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:'+(process.env.PORT||8851)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

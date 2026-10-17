@@ -1,25 +1,35 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="uk">
 <head>
   <meta charset="UTF-8">
   <title>Trip Tracker — Система обліку рейсів</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="description" content="Система обліку рейсів, робочих змін та кілометражу для водіїв">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="#2563eb" id="themeMeta">
   <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon-180.png">
   <link rel="manifest" href="/manifest.json">
-  <link rel="stylesheet" href="/style.css?v=3">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="/style.css?v=5">
+  <script src="/vendor/chart.umd.min.js"></script>
 </head>
 <body>
 
+  <noscript>
+    <div style="padding:16px; background:#fef3c7; color:#b45309; text-align:center;">
+      Для роботи застосунку потрібно увімкнути JavaScript.
+    </div>
+  </noscript>
+
   <!-- Офлайн банер -->
-  <div id="offlineBanner" class="offline-banner">
+  <div id="offlineBanner" class="offline-banner" role="status" aria-live="polite">
     📡 Немає підключення до Інтернету. Працює офлайн-режим (записи зберігаються локально).
   </div>
+
+  <!-- Глобальний контейнер повідомлень -->
+  <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
 
   <!-- 1. Екран Входу -->
   <div id="loginScreen">
@@ -27,11 +37,11 @@
       <div style="font-size: 2.2rem; margin-bottom: 8px;">🚛</div>
       <h2 style="margin-bottom: 6px; font-size: 1.3rem;">Вхід в систему</h2>
       <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">Облік рейсів та робочих змін</p>
-      <form id="loginForm" onsubmit="event.preventDefault(); handleLogin();">
+      <form id="loginForm">
         <input type="password" id="loginPassword" placeholder="Введіть пароль" autocomplete="current-password" style="margin-bottom: 14px;" required>
         <button type="submit" id="loginBtn" class="btn btn-primary" style="width: 100%; height: 46px;">Увійти</button>
       </form>
-      <div id="loginError" style="color: var(--danger); font-size: 0.85rem; margin-top: 12px; display: none;"></div>
+      <div id="loginError" role="alert" style="color: var(--danger); font-size: 0.85rem; margin-top: 12px; display: none;"></div>
     </div>
   </div>
 
@@ -39,19 +49,19 @@
   <div id="appScreen" style="display: none;">
     <header class="header-bar">
       <div class="header-container">
-        <div class="nav-tabs">
-          <button class="tab-btn active" id="tabFormBtn" onclick="switchTab('form')">✍️ Форма</button>
-          <button class="tab-btn" id="tabReportBtn" onclick="switchTab('report')">🚛 Рейси та Звіт</button>
-          <button class="tab-btn" id="tabTableBtn" onclick="switchTab('table')">📑 Таблиця</button>
-          <button class="tab-btn" id="tabAnalyticsBtn" onclick="switchTab('analytics')">📈 Графіки</button>
-        </div>
+        <nav class="nav-tabs" aria-label="Основна навігація">
+          <button class="tab-btn active" id="tabFormBtn" data-action="switch-tab" data-tab="form" aria-controls="tabForm">✍️ Форма</button>
+          <button class="tab-btn" id="tabReportBtn" data-action="switch-tab" data-tab="report" aria-controls="tabReport">🚛 Рейси та Звіт</button>
+          <button class="tab-btn" id="tabTableBtn" data-action="switch-tab" data-tab="table" aria-controls="tabTable">📑 Таблиця</button>
+          <button class="tab-btn" id="tabAnalyticsBtn" data-action="switch-tab" data-tab="analytics" aria-controls="tabAnalytics">📈 Графіки</button>
+        </nav>
         <div class="header-actions">
-          <button class="header-icon-btn" onclick="syncOfflineQueue()" title="Офлайн-черга" id="offlineSyncBtn">
+          <button class="header-icon-btn" data-action="sync-offline" title="Офлайн-черга" aria-label="Синхронізувати офлайн-чергу" id="offlineSyncBtn">
             📡
             <span id="offlineCountBadge" class="badge-count">0</span>
           </button>
-          <button class="header-icon-btn" onclick="toggleTheme()" id="themeBtn" title="Тема">🌙</button>
-          <button class="header-icon-btn" onclick="handleLogout()" title="Вийти">🚪</button>
+          <button class="header-icon-btn" data-action="toggle-theme" id="themeBtn" title="Тема" aria-label="Перемкнути тему">🌙</button>
+          <button class="header-icon-btn" data-action="logout" title="Вийти" aria-label="Вийти з системи">🚪</button>
         </div>
       </div>
     </header>
@@ -62,11 +72,11 @@
       <div id="activeTripContainer"></div>
 
       <!-- ВКЛАДКА 1: ФОРМА НОВОГО ЗАПИСУ -->
-      <div id="tabForm" class="card">
+      <div id="tabForm" class="card" role="tabpanel">
         <h2 style="font-size: 1.15rem; margin-bottom: 14px;">Новий запис</h2>
         <form id="tripForm">
           <div class="form-grid">
-            
+
             <div class="row-2col col-span-2">
               <div class="field-wrap">
                 <label for="dateInput">Дата *</label>
@@ -80,7 +90,7 @@
 
             <div class="field-wrap">
               <label for="action">Дія *</label>
-              <select id="action" required onchange="onActionChanged()"></select>
+              <select id="action" required data-action="action-changed"></select>
             </div>
 
             <div class="field-wrap">
@@ -88,8 +98,8 @@
                 <label for="odometer">Одометр (км)</label>
                 <span id="lastOdoHint" style="font-size:0.75rem; color:var(--primary); font-weight: 600;"></span>
               </div>
-              <input type="number" id="odometer" placeholder="напр. 154320" inputmode="numeric" oninput="checkOdometerInput()">
-              <div id="odoAlert" class="alert-box warning"></div>
+              <input type="number" id="odometer" placeholder="напр. 154320" inputmode="numeric" data-action="odometer-input">
+              <div id="odoAlert" class="alert-box warning" role="alert"></div>
             </div>
 
             <!-- Динамічні поля для Доставок -->
@@ -116,7 +126,7 @@
             <div class="field-wrap col-span-2">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
                 <label style="margin-bottom: 0;">Геолокація GPS</label>
-                <button type="button" id="geoRetryBtn" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem; display: none;" onclick="fetchGPS()">
+                <button type="button" id="geoRetryBtn" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem; display: none;" data-action="gps-retry">
                   🔄 Спробувати знову
                 </button>
               </div>
@@ -128,7 +138,7 @@
             </div>
 
             <div class="col-span-2">
-              <div class="report-toggle-card" id="formReportCard" onclick="toggleFormReportStatus()">
+              <div class="report-toggle-card" id="formReportCard" data-action="toggle-form-report" role="switch" aria-checked="false" tabindex="0" aria-label="Статус звіту">
                 <div class="report-toggle-info">
                   <span class="report-toggle-title">Статус звіту</span>
                   <span class="report-toggle-status" id="formReportText" style="color: var(--warning);">⏳ Звіт НЕ здано</span>
@@ -146,21 +156,20 @@
 
           </div>
         </form>
-        <div id="msg" class="toast"></div>
       </div>
 
       <!-- ВКЛАДКА 2: РЕЙСИ ТА ЗВІТ -->
-      <div id="tabReport" style="display: none;">
+      <div id="tabReport" style="display: none;" role="tabpanel">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
           <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
             <h2 style="font-size: 1.15rem;">Ієрархія рейсів</h2>
-            <select id="reportTripSelect" style="height: 38px; width: auto; font-size: 0.85rem;" onchange="loadTripsReport()">
+            <select id="reportTripSelect" style="height: 38px; width: auto; font-size: 0.85rem;" data-action="load-report">
               <option value="">Усі рейси</option>
             </select>
           </div>
           <div style="display: flex; gap: 6px;">
-            <button class="btn btn-primary" style="padding: 7px 12px; font-size: 0.85rem;" onclick="openNewTripModal()">+ Новий рейс</button>
-            <button class="btn btn-secondary" style="padding: 7px 12px; font-size: 0.85rem;" onclick="loadTripsReport()">🔄</button>
+            <button class="btn btn-primary" style="padding: 7px 12px; font-size: 0.85rem;" data-action="open-new-trip">+ Новий рейс</button>
+            <button class="btn btn-secondary" style="padding: 7px 12px; font-size: 0.85rem;" data-action="load-report" title="Оновити" aria-label="Оновити звіт">🔄</button>
           </div>
         </div>
         <div id="tripsReportContainer">
@@ -169,13 +178,13 @@
       </div>
 
       <!-- ВКЛАДКА 3: ТАБЛИЦЯ ТА ФІЛЬТРИ -->
-      <div id="tabTable" style="display: none;">
+      <div id="tabTable" style="display: none;" role="tabpanel">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
           <div style="font-size: 0.9rem;">Всього записів: <strong id="totalRecordsCount">0</strong></div>
           <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" onclick="exportToCSV()">📤 CSV</button>
-            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" onclick="openImportModal()">📥 Імпорт</button>
-            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" onclick="reloadTable(true)">🔄</button>
+            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" data-action="export-csv">📤 CSV</button>
+            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" data-action="open-import">📥 Імпорт</button>
+            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" data-action="reload-table" title="Оновити" aria-label="Оновити таблицю">🔄</button>
           </div>
         </div>
 
@@ -184,17 +193,17 @@
           <div class="filter-grid" style="grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));">
             <div class="field-wrap">
               <label for="tableSearch">Пошук</label>
-              <input type="text" id="tableSearch" placeholder="Дія, локація або коментар..." oninput="onSearchInputChanged()">
+              <input type="text" id="tableSearch" placeholder="Дія, локація або коментар..." data-action="table-search">
             </div>
             <div class="field-wrap">
               <label for="filterTrip">Рейс</label>
-              <select id="filterTrip" onchange="reloadTable(true)">
+              <select id="filterTrip" data-action="reload-table">
                 <option value="">Всі рейси</option>
               </select>
             </div>
             <div class="field-wrap">
               <label for="filterReportStatus">Статус звіту</label>
-              <select id="filterReportStatus" onchange="reloadTable(true)">
+              <select id="filterReportStatus" data-action="reload-table">
                 <option value="">Всі статуси</option>
                 <option value="1">✅ Тільки здані</option>
                 <option value="0">⏳ Тільки не здані</option>
@@ -202,14 +211,14 @@
             </div>
             <div class="field-wrap">
               <label for="filterDateFrom">Дата від</label>
-              <input type="date" id="filterDateFrom" onchange="reloadTable(true)">
+              <input type="date" id="filterDateFrom" data-action="reload-table">
             </div>
             <div class="field-wrap">
               <label for="filterDateTo">Дата до</label>
-              <input type="date" id="filterDateTo" onchange="reloadTable(true)">
+              <input type="date" id="filterDateTo" data-action="reload-table">
             </div>
             <div class="field-wrap" style="justify-content: flex-end;">
-              <button class="btn btn-secondary" style="height: 44px;" onclick="resetTableFilters()" title="Скинути фільтри">
+              <button class="btn btn-secondary" style="height: 44px;" data-action="reset-filters" title="Скинути фільтри">
                 ✕ Скинути
               </button>
             </div>
@@ -240,32 +249,32 @@
         <div id="loadMoreSection" style="margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 8px;">
           <div style="font-size: 0.85rem; color: var(--text-muted);" id="tableLoadedStatus"></div>
           <div style="display: flex; gap: 8px;">
-            <button class="btn btn-secondary" onclick="loadMoreRecords(30)">+ 30</button>
-            <button class="btn btn-secondary" onclick="loadMoreRecords(50)">+ 50</button>
-            <button class="btn btn-secondary" onclick="loadMoreRecords(100)">+ 100</button>
+            <button class="btn btn-secondary" data-action="load-more" data-limit="30">+ 30</button>
+            <button class="btn btn-secondary" data-action="load-more" data-limit="50">+ 50</button>
+            <button class="btn btn-secondary" data-action="load-more" data-limit="100">+ 100</button>
           </div>
         </div>
       </div>
 
       <!-- ВКЛАДКА 4: АНАЛІТИКА ТА ГРАФІКИ -->
-      <div id="tabAnalytics" style="display: none;">
-        
+      <div id="tabAnalytics" style="display: none;" role="tabpanel">
+
         <!-- Панель вибору періоду -->
         <div class="analytics-header">
           <div class="period-pills">
-            <button class="pill-btn" onclick="setAnalyticsPeriod('7d', this)">7 днів</button>
-            <button class="pill-btn active" onclick="setAnalyticsPeriod('30d', this)">30 днів</button>
-            <button class="pill-btn" onclick="setAnalyticsPeriod('month', this)">Цей місяць</button>
-            <button class="pill-btn" onclick="setAnalyticsPeriod('all', this)">Весь час</button>
+            <button class="pill-btn" data-action="period" data-period="7d">7 днів</button>
+            <button class="pill-btn active" data-action="period" data-period="30d">30 днів</button>
+            <button class="pill-btn" data-action="period" data-period="month">Цей місяць</button>
+            <button class="pill-btn" data-action="period" data-period="all">Весь час</button>
           </div>
           <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <select id="analyticsTripSelect" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" onchange="loadAnalytics()">
+            <select id="analyticsTripSelect" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" data-action="load-analytics">
               <option value="">Всі рейси</option>
             </select>
-            <input type="date" id="analyticsDateFrom" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" onchange="applyCustomAnalyticsDates()">
+            <input type="date" id="analyticsDateFrom" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" data-action="custom-period">
             <span style="font-size: 0.82rem; color: var(--text-muted);">-</span>
-            <input type="date" id="analyticsDateTo" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" onchange="applyCustomAnalyticsDates()">
-            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" onclick="loadAnalytics()" title="Оновити графіки">🔄</button>
+            <input type="date" id="analyticsDateTo" style="height: 36px; padding: 4px 8px; font-size: 0.85rem; width: auto;" data-action="custom-period">
+            <button class="btn btn-secondary" style="padding: 6px 10px; font-size: 0.82rem;" data-action="load-analytics" title="Оновити графіки" aria-label="Оновити графіки">🔄</button>
           </div>
         </div>
 
@@ -308,9 +317,11 @@
           </div>
         </div>
 
+        <div id="analyticsMessage" class="analytics-message" style="display:none;"></div>
+
         <!-- Сітка Графіків -->
         <div class="chart-grid">
-          
+
           <!-- Графік 1: Пробіг по днях -->
           <div class="chart-card">
             <div class="chart-card-header">
@@ -363,24 +374,24 @@
   </div>
 
   <!-- МОДАЛЬНЕ ВІКНО: ІМПОРТ -->
-  <div id="importModal" class="modal">
+  <div id="importModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="importModalTitle">
     <div class="modal-content">
-      <h3 style="margin-bottom: 8px; font-size: 1.15rem;">📥 Імпорт з таблиць</h3>
+      <h3 id="importModalTitle" style="margin-bottom: 8px; font-size: 1.15rem;">📥 Імпорт з таблиць</h3>
       <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom: 12px;">
         Скопіюйте рядки в Google Таблицях або Excel та вставте сюди (підтримуються формати дат YYYY-MM-DD та DD.MM.YY):
       </p>
       <textarea id="importRawText" rows="8" placeholder="Вставте рядки з таблиці сюди..."></textarea>
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;">
-        <button class="btn btn-secondary" onclick="closeImportModal()">Скасувати</button>
-        <button class="btn btn-primary" id="importBtn" onclick="sendBulkImport()">Завантажити</button>
+        <button class="btn btn-secondary" data-action="close-modal" data-modal="importModal">Скасувати</button>
+        <button class="btn btn-primary" id="importBtn" data-action="send-import">Завантажити</button>
       </div>
     </div>
   </div>
 
   <!-- МОДАЛЬНЕ ВІКНО: РЕДАГУВАННЯ -->
-  <div id="editModal" class="modal">
+  <div id="editModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
     <div class="modal-content">
-      <h3 style="margin-bottom: 14px; font-size: 1.15rem;">✏️ Редагування запису</h3>
+      <h3 id="editModalTitle" style="margin-bottom: 14px; font-size: 1.15rem;">✏️ Редагування запису</h3>
       <input type="hidden" id="editId">
       <div class="form-grid">
         <div class="row-2col col-span-2">
@@ -402,6 +413,10 @@
           <select id="editAction" required></select>
         </div>
         <div class="field-wrap col-span-2">
+          <label for="editTrip">Рейс</label>
+          <select id="editTrip"></select>
+        </div>
+        <div class="field-wrap col-span-2">
           <label for="editLocation">Локація</label>
           <input type="text" id="editLocation" maxlength="255">
         </div>
@@ -414,7 +429,7 @@
           <input type="text" id="editCoords" placeholder="напр. 50.450100, 30.523400" maxlength="100">
         </div>
         <div class="col-span-2">
-          <div class="report-toggle-card" id="editReportCard" onclick="toggleEditReportStatus()">
+          <div class="report-toggle-card" id="editReportCard" data-action="toggle-edit-report" role="switch" aria-checked="false" tabindex="0" aria-label="Статус звіту">
             <div class="report-toggle-info">
               <span class="report-toggle-title">Статус звіту</span>
               <span class="report-toggle-status" id="editReportText">⏳ Звіт НЕ здано</span>
@@ -425,35 +440,35 @@
         </div>
       </div>
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 8px;">
-        <button class="btn btn-danger" onclick="deleteFromModal()" title="Видалити запис">🗑️</button>
+        <button class="btn btn-danger" data-action="delete-from-modal" title="Видалити запис" aria-label="Видалити запис">🗑️</button>
         <div style="display: flex; gap: 8px;">
-          <button class="btn btn-secondary" onclick="closeEditModal()">Скасувати</button>
-          <button class="btn btn-primary" onclick="saveEdit()">Зберегти</button>
+          <button class="btn btn-secondary" data-action="close-modal" data-modal="editModal">Скасувати</button>
+          <button class="btn btn-primary" data-action="save-edit">Зберегти</button>
         </div>
       </div>
     </div>
   </div>
 
   <!-- МОДАЛЬНЕ ВІКНО: ПІДТВЕРДЖЕННЯ ВИДАЛЕННЯ -->
-  <div id="deleteModal" class="modal">
+  <div id="deleteModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="deleteModalTitle">
     <div class="modal-content" style="max-width: 400px; text-align: center;">
       <div style="font-size: 2.2rem; margin-bottom: 8px;">🗑️</div>
-      <h3 style="margin-bottom: 8px; font-size: 1.15rem;">Видалення запису</h3>
+      <h3 id="deleteModalTitle" style="margin-bottom: 8px; font-size: 1.15rem;">Видалення запису</h3>
       <p id="deleteConfirmText" style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 20px;">
         Ви дійсно бажаєте видалити цей запис?
       </p>
       <div style="display: flex; justify-content: center; gap: 10px;">
-        <button class="btn btn-secondary" onclick="closeDeleteModal()">Скасувати</button>
-        <button class="btn btn-danger" onclick="executeDeleteRecord()">Видалити</button>
+        <button class="btn btn-secondary" data-action="close-modal" data-modal="deleteModal">Скасувати</button>
+        <button class="btn btn-danger" data-action="execute-delete">Видалити</button>
       </div>
     </div>
   </div>
 
   <!-- МОДАЛЬНЕ ВІКНО: НОВИЙ РЕЙС -->
-  <div id="newTripModal" class="modal">
+  <div id="newTripModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="newTripModalTitle">
     <div class="modal-content">
-      <h3 style="margin-bottom: 12px; font-size: 1.15rem;">🚀 Початок нового рейсу</h3>
-      <form id="newTripForm" onsubmit="event.preventDefault(); submitNewTrip();">
+      <h3 id="newTripModalTitle" style="margin-bottom: 12px; font-size: 1.15rem;">🚀 Початок нового рейсу</h3>
+      <form id="newTripForm">
         <div class="form-grid">
           <div class="field-wrap col-span-2">
             <label for="newTripName">Назва або маршрут рейсу *</label>
@@ -471,7 +486,7 @@
           </div>
           <div class="field-wrap col-span-2">
             <label for="newTripOdometer">Початковий одометр (км)</label>
-            <input type="number" id="newTripOdometer" placeholder="напр. 154200" inputmode="numeric">
+            <input type="number" id="newTripOdometer" placeholder="напр. 154200" inputmode="numeric" min="0">
           </div>
           <div class="field-wrap col-span-2">
             <label for="newTripNotes">Нотатки / Заявка</label>
@@ -479,7 +494,7 @@
           </div>
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
-          <button type="button" class="btn btn-secondary" onclick="closeNewTripModal()">Скасувати</button>
+          <button type="button" class="btn btn-secondary" data-action="close-modal" data-modal="newTripModal">Скасувати</button>
           <button type="submit" id="newTripSubmitBtn" class="btn btn-primary">Почати рейс</button>
         </div>
       </form>
@@ -487,11 +502,11 @@
   </div>
 
   <!-- МОДАЛЬНЕ ВІКНО: ЗАВЕРШЕННЯ РЕЙСУ -->
-  <div id="completeTripModal" class="modal">
+  <div id="completeTripModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="completeTripModalTitle">
     <div class="modal-content">
-      <h3 style="margin-bottom: 8px; font-size: 1.15rem;">🏁 Завершення рейсу</h3>
+      <h3 id="completeTripModalTitle" style="margin-bottom: 8px; font-size: 1.15rem;">🏁 Завершення рейсу</h3>
       <p id="completeTripPrompt" style="font-size:0.85rem; color:var(--text-muted); margin-bottom: 12px;"></p>
-      <form id="completeTripForm" onsubmit="event.preventDefault(); submitCompleteTrip();">
+      <form id="completeTripForm">
         <input type="hidden" id="completeTripId">
         <div class="form-grid">
           <div class="row-2col col-span-2">
@@ -506,7 +521,7 @@
           </div>
           <div class="field-wrap col-span-2">
             <label for="completeTripOdometer">Кінцевий одометр (км)</label>
-            <input type="number" id="completeTripOdometer" placeholder="напр. 156340" inputmode="numeric">
+            <input type="number" id="completeTripOdometer" placeholder="напр. 156340" inputmode="numeric" min="0">
           </div>
           <div class="field-wrap col-span-2">
             <label for="completeTripNotes">Підсумковий коментар</label>
@@ -514,13 +529,54 @@
           </div>
         </div>
         <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px;">
-          <button type="button" class="btn btn-secondary" onclick="closeCompleteTripModal()">Скасувати</button>
+          <button type="button" class="btn btn-secondary" data-action="close-modal" data-modal="completeTripModal">Скасувати</button>
           <button type="submit" id="completeTripSubmitBtn" class="btn btn-primary" style="background: var(--warning); border-color: var(--warning);">Завершити рейс</button>
         </div>
       </form>
     </div>
   </div>
 
-  <script src="/app.js?v=3"></script>
+  <!-- МОДАЛЬНЕ ВІКНО: РЕДАГУВАННЯ РЕЙСУ -->
+  <div id="editTripModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="editTripModalTitle">
+    <div class="modal-content">
+      <h3 id="editTripModalTitle" style="margin-bottom: 12px; font-size: 1.15rem;">✏️ Редагування рейсу</h3>
+      <form id="editTripForm">
+        <input type="hidden" id="editTripId">
+        <div class="form-grid">
+          <div class="field-wrap col-span-2">
+            <label for="editTripName">Назва або маршрут *</label>
+            <input type="text" id="editTripName" required maxlength="255">
+          </div>
+          <div class="row-2col col-span-2">
+            <div class="field-wrap">
+              <label for="editTripDate">Дата початку *</label>
+              <input type="date" id="editTripDate" required>
+            </div>
+            <div class="field-wrap">
+              <label for="editTripTime">Час початку *</label>
+              <input type="time" id="editTripTime" required>
+            </div>
+          </div>
+          <div class="field-wrap col-span-2">
+            <label for="editTripOdometer">Початковий одометр (км)</label>
+            <input type="number" id="editTripOdometer" inputmode="numeric" min="0">
+          </div>
+          <div class="field-wrap col-span-2">
+            <label for="editTripNotes">Нотатки</label>
+            <textarea id="editTripNotes" rows="2" maxlength="1000"></textarea>
+          </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 8px;">
+          <button type="button" class="btn btn-danger" data-action="delete-trip" title="Видалити рейс" aria-label="Видалити рейс">🗑️</button>
+          <div style="display: flex; gap: 8px;">
+            <button type="button" class="btn btn-secondary" data-action="close-modal" data-modal="editTripModal">Скасувати</button>
+            <button type="submit" class="btn btn-primary">Зберегти</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/app.js?v=5"></script>
 </body>
 </html>

@@ -4,3 +4,4 @@ data/*.sqlite*
 .DS_Store
 Thumbs.db
 npm-debug.log*
+.workbuddy-ai/
