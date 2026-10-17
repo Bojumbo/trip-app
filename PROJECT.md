@@ -66,14 +66,18 @@ src/
     security.js           CSP, заголовки, CSRF, trust proxy
     rate-limit.js         Лімітер + глобальний запобіжник входу
     sessions.js           Cookie-сесії, bcrypt, auth-middleware
+  lib/
+    geo.js                Гавайська формула, nearestPointM (дедуплікація автопауз)
   services/
     records.js            Бізнес-логіка записів і доставок (insertRecord, deleteRecord)
   routes/
     auth.js               /api/login, /api/logout, /api/session
-    meta.js               /api/actions, /api/odometer/last, /api/health
+    meta.js               /api/actions, /api/odometer/last, /api/health, /api/tiles
     trips.js              CRUD рейсів, /active, /:id/complete, /:id/details
     deliveries.js         PATCH/DELETE доставок
     records.js            CRUD записів, /all, /bulk-import, /bulk-report-status
+    devices.js            /api/devices/* — pairing і керування трекерами
+    track.js              /api/track/segments — прийом маршруту з Android
     report.js             /api/report — агрегований звіт одним запитом
 public/
   index.html              Розмітка (без inline-обробників)
@@ -83,7 +87,11 @@ public/
   manifest.json           PWA-маніфест
   vendor/chart.umd.min.js Chart.js локально
   icon*.svg|png           Іконки, maskable-варіант
-tests/                    6 файлів, 59 перевірок (node:test)
+tests/                    10 файлів, 89 перевірок (node:test); schema-boot і
+                         schema-migration перевіряють міграцію на старій БД
+android/                  Kotlin-трекер (окремий клієнт API), збірка через Actions
+vendor/maplibre-gl.js     MapLibre + pmtiles локально (карта маршруту)
+tiles/region.pmtiles      офлайн-карта регіону, не в git (див. docs/TRACKING-MAP.md)
 scripts/check-syntax.js   npm run check
 data/database.sqlite      БД (том Docker, у git не потрапляє)
 docs/AUDIT-2026-10-17.md  Повний аудит: 52 дефекти + що виправлено
@@ -96,5 +104,7 @@ Dockerfile, docker-compose.yml, .env.example
 - [DECISIONS.md](DECISIONS.md) — журнал рішень із причинами (нове зверху).
 - [TASKS.md](TASKS.md) — backlog: зараз / далі / колись / зроблено.
 - [GLOSSARY.md](GLOSSARY.md) — терміни, назви модулів і API, домовленості.
+- [HISTORY.md](HISTORY.md) — детальна історія по версіях (v1.1.0 → v1.3.1).
+- [NOTES.md](NOTES.md) — технічні пастки: міграції SQLite, SW, MapLibre, середовище.
 - [docs/AUDIT-2026-10-17.md](docs/AUDIT-2026-10-17.md) — аудит і перелік виправлень.
 - `.workbuddy-ai/memory/YYYY-MM-DD.md` — технічні нотатки по сесіях (не дублюємо тут).
