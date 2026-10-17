@@ -227,14 +227,40 @@ function updateNetworkStatus() {
 }
 
 // ---------- GPS ----------
+// Координати зберігаються для кожного запису. Якщо фіксація старша за GPS_MAX_AGE_MS —
+// перед збереженням робимо спробу оновити її (з жорстким таймаутом, щоб не блокувати форму).
+const GPS_MAX_AGE_MS = 5 * 60 * 1000;
+let userCoordsAt = 0;
+
+function formatTime(ts) {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function applyPosition(pos) {
+  userCoords = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
+  userCoordsAt = Date.now();
+
+  const cInp = $('coords');
+  if (cInp) cInp.value = userCoords;
+
+  const txt = $('geoStatusText');
+  if (txt) txt.textContent = `GPS: ${userCoords} · ${formatTime(userCoordsAt)}`;
+
+  const dot = $('geoDot');
+  if (dot) dot.className = 'dot active';
+}
+
+function gpsFresh() {
+  return Boolean(userCoords) && (Date.now() - userCoordsAt) < GPS_MAX_AGE_MS;
+}
+
 function fetchGPS() {
   const txt = $('geoStatusText');
   const dot = $('geoDot');
-  const retryBtn = $('geoRetryBtn');
 
   if (dot) dot.className = 'dot';
-  if (txt) txt.textContent = 'Визначення координат...';
-  if (retryBtn) retryBtn.style.display = 'none';
+  if (txt) txt.textContent = userCoords ? 'Оновлення координат...' : 'Визначення координат...';
 
   if (!navigator.geolocation) {
     if (txt) txt.textContent = 'GPS не підтримується цим браузером';
@@ -246,19 +272,43 @@ function fetchGPS() {
   }
 
   navigator.geolocation.getCurrentPosition(
-    (pos) => {
-      userCoords = `${pos.coords.latitude.toFixed(6)}, ${pos.coords.longitude.toFixed(6)}`;
-      const cInp = $('coords');
-      if (cInp) cInp.value = userCoords;
-      if (txt) txt.textContent = `GPS: ${userCoords}`;
-      if (dot) dot.className = 'dot active';
-    },
+    applyPosition,
     (err) => {
-      if (txt) txt.textContent = `GPS недоступний: ${err.message}`;
-      if (retryBtn) retryBtn.style.display = 'inline-block';
+      if (txt) {
+        txt.textContent = userCoords
+          ? `GPS: ${userCoords} · ${formatTime(userCoordsAt)} (не оновився: ${err.message})`
+          : `GPS недоступний: ${err.message}`;
+      }
+      if (dot) dot.className = userCoords ? 'dot active' : 'dot';
     },
     { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
   );
+}
+
+/**
+ * Повертає актуальні координати перед збереженням.
+ * Ніколи не «зависає»: якщо GPS не відповів за timeoutMs — віддає останні відомі.
+ */
+function ensureFreshCoords(timeoutMs = 6000) {
+  if (gpsFresh()) return Promise.resolve(userCoords);
+  if (!navigator.geolocation) return Promise.resolve(userCoords);
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      resolve(userCoords);
+    };
+
+    const timer = setTimeout(finish, timeoutMs);
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => { clearTimeout(timer); applyPosition(pos); finish(); },
+      () => { clearTimeout(timer); finish(); },
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
+    );
+  });
 }
 
 // ---------- Довідник дій ----------
@@ -457,6 +507,9 @@ async function submitRecordForm(e) {
   if (btn.disabled) return;
   btn.disabled = true;
 
+  // Координати мають зберігатись для кожного запису — за потреби оновлюємо перед збереженням
+  const coords = await ensureFreshCoords();
+
   const odoRaw = val('odometer').trim();
   const payload = {
     date: val('dateInput'),
@@ -465,7 +518,7 @@ async function submitRecordForm(e) {
     action: val('action'),
     location: val('location'),
     comment: val('comment'),
-    coords: userCoords || val('coords'),
+    coords: coords || val('coords'),
     is_reported: $('formIsReported')?.checked ? 1 : 0,
     cargo: ($('cargoInput')?.value || '').trim(),
     delivery_id: $('unloadDeliverySelect')?.value || null,

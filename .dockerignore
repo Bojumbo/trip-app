@@ -3,6 +3,9 @@ data
 .env
 .git
 .workbuddy-ai
+tests
+docs
+scripts
 npm-debug.log*
 .DS_Store
 Thumbs.db

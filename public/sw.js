@@ -1,6 +1,6 @@
 ﻿/* Service Worker — офлайн-режим */
 
-const CACHE_NAME = 'trip-tracker-v5';
+const CACHE_NAME = 'trip-tracker-v6';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -77,7 +77,11 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached);
+        .catch(() => cached || new Response('Offline', {
+          status: 504,
+          statusText: 'Offline',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+        }));
 
       return cached || network;
     })

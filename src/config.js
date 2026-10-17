@@ -1,0 +1,73 @@
+'use strict';
+
+/**
+ * Централізована конфігурація.
+ * Усі значення читаються тут, решта коду не звертається до process.env напряму.
+ */
+
+const path = require('path');
+const fs = require('fs');
+
+// .env підтримується, але не є обов'язковим (у Docker змінні приходять з оточення)
+try {
+  require('dotenv').config();
+} catch (e) {
+  // dotenv не встановлено — працюємо лише з process.env
+}
+
+const ROOT = path.resolve(__dirname, '..');
+const IS_PROD = process.env.NODE_ENV === 'production';
+
+const DATA_DIR = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(ROOT, 'data');
+
+const DB_PATH = process.env.DB_PATH
+  ? path.resolve(process.env.DB_PATH)
+  : path.join(DATA_DIR, 'database.sqlite');
+
+const PORT = Number(process.env.PORT || 3000);
+
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_TOUCH_MS = 24 * 60 * 60 * 1000;
+const COOKIE_NAME = 'tt_sid';
+
+const LIMITS = {
+  json: '1mb',
+  bulkImport: '5mb',
+  bulkImportText: 3 * 1024 * 1024,
+  recordsAll: 50000,
+  reportRecords: 20000,
+  unassignedPreview: 200,
+  pageSize: 500,
+  bulkReportIds: 1000
+};
+
+function resolveAdminPassword() {
+  const fromEnv = process.env.ADMIN_PASSWORD;
+  if (fromEnv && fromEnv.length >= 6) return fromEnv;
+
+  if (IS_PROD) {
+    throw new Error('ADMIN_PASSWORD не задано або коротший за 6 символів — запуск неможливий');
+  }
+  return 'admin123';
+}
+
+function ensureDataDir() {
+  const dir = path.dirname(DB_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+module.exports = {
+  ROOT,
+  IS_PROD,
+  DATA_DIR,
+  DB_PATH,
+  PORT,
+  SESSION_TTL_MS,
+  SESSION_TOUCH_MS,
+  COOKIE_NAME,
+  LIMITS,
+  ensureDataDir,
+  resolveAdminPassword
+};
