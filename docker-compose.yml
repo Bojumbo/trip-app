@@ -16,8 +16,10 @@ services:
       - TRUST_PROXY=${TRUST_PROXY:-}
     volumes:
       - ./data:/app/data
-      # Офлайн-карта регіону: region.pmtiles лежить на хості (див. docs/TRACKING-MAP.md).
-      # Її не можна тримати в образі — redeploy зітре файл, а сервіс-воркер не кешує /tiles/*.
+      # Офлайн-карта регіону — НЕОБОВ'ЯЗКОВА. Без неї працює онлайн-режим:
+      # сервер сам тягне тайли з Protomaps і кешує їх у ./data/tilecache.
+      # Якщо ./tiles/region.pmtiles існує — він має приоритет (робота без інтернету).
+      # Докладно: docs/TRACKING-MAP.md
       - ./tiles:/app/public/tiles
     security_opt:
       - no-new-privileges:true

@@ -6,6 +6,7 @@ const logger = require('../logger');
 const { ApiError } = require('../lib/errors');
 const { cleanText, parseBool, parseInteger, requireDate, requireTime } = require('../lib/validate');
 const { requireSession } = require('../lib/sessions');
+const tiles = require('../services/map-tiles');
 
 const router = express.Router();
 
@@ -191,6 +192,10 @@ router.get('/:id/track', (req, res) => {
   `).all(trip.id);
 
   res.json({ trip_id: trip.id, segments });
+
+  // Підкладка під цю ділянку завантажується сама: прогрів іде у фоні після
+  // відповіді, тому карта відкривається одразу, а тайли вже лежать у кеші.
+  tiles.warmSegments(segments).catch(() => { /* підкладка не критична */ });
 });
 
 module.exports = router;

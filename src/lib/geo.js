@@ -36,4 +36,85 @@ function timeToMinutes(value) {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
-module.exports = { parseCoords, distanceMeters, timeToMinutes };
+/**
+ * Google encoded polyline → [{lat, lon}].
+ *
+ * Той самий формат, що Polyline.encode у трекері та decodePolyline у app.js:
+ * різниця координат у п'ятому знаку, зісунута на 63, розбита на 5-бітові групи.
+ * Потрібен на сервері, щоб порахувати прямокутник рейсу для прогріву тайлів.
+ */
+function decodePolyline(str, precision = 5) {
+  if (typeof str !== 'string' || str.length === 0) return [];
+
+  const factor = 10 ** precision;
+  const out = [];
+  let index = 0;
+  let lat = 0;
+  let lon = 0;
+
+  // Захист від зіпсованого рядка: кожна точка — щонайменше 2 символи.
+  const maxPoints = Math.ceil(str.length / 2);
+
+  while (index < str.length && out.length <= maxPoints) {
+    let result = 0;
+    let shift = 0;
+    let byte;
+
+    do {
+      if (index >= str.length) return out;
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+
+    lat += result & 1 ? ~(result >> 1) : result >> 1;
+
+    result = 0;
+    shift = 0;
+    do {
+      if (index >= str.length) return out;
+      byte = str.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+
+    lon += result & 1 ? ~(result >> 1) : result >> 1;
+
+    out.push({ lat: lat / factor, lon: lon / factor });
+  }
+
+  return out;
+}
+
+/**
+ * Прямокутник [west, south, east, north] навколо точок.
+ * `padDeg` розширює межі, щоб у кадр потрапило трохи околиць.
+ */
+function bboxOfPoints(points, padDeg = 0) {
+  if (!Array.isArray(points) || points.length === 0) return null;
+
+  let west = Infinity;
+  let south = Infinity;
+  let east = -Infinity;
+  let north = -Infinity;
+
+  for (const p of points) {
+    if (!p || !Number.isFinite(p.lat) || !Number.isFinite(p.lon)) continue;
+    if (p.lon < west) west = p.lon;
+    if (p.lon > east) east = p.lon;
+    if (p.lat < south) south = p.lat;
+    if (p.lat > north) north = p.lat;
+  }
+
+  if (!Number.isFinite(west)) return null;
+
+  const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
+  return [
+    clamp(west - padDeg, -180, 180),
+    clamp(south - padDeg, -85, 85),
+    clamp(east + padDeg, -180, 180),
+    clamp(north + padDeg, -85, 85)
+  ];
+}
+
+module.exports = { parseCoords, distanceMeters, timeToMinutes, decodePolyline, bboxOfPoints };

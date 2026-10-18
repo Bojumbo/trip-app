@@ -61,14 +61,30 @@
   шари підкладки через нього, тихо падав у `try/catch`, і підкладка не додавалась зовсім
   (маршрут малювався, вулиць не було). Список source-layer беріть із фіксованого переліку
   (`BASEMAP_LAYER_ORDER`) — шар із неіснуючим source-layer просто нічого не малює.
-- `region.pmtiles` для всієї України (z12) — **324 МБ**. Генерація без Docker:
+- **Не збирайте URL тайла через `new URL()`** — він кодує `{z}/{x}/{y}` у `%7Bz%7D`,
+  і MapLibre не завантажує жодного тайла (шари є, полотно порожнє, помилок у консолі немає).
+  Тільки конкатенація: `location.origin + '/tiles/{z}/{x}/{y}.mvt'`.
+- **`pmtiles.getZxy()` віддає вже розпакований MVT** (`tileCompression` застосовується
+  всередині), тому віддавати треба як `application/x-protobuf` **без** `Content-Encoding`.
+  Перевірка магії: MVT починається з `1a` (поле `layers`), gzip — з `1f 8b`.
+- Онлайн-режим: `src/services/map-tiles.js` тягне тайл із `build.protomaps.com/YYYYMMDD.pmtiles`
+  по HTTP Range і кешує в `data/tilecache/<дата>/z/x/y.mvt`. Дата збірки шукається назад
+  на `MAP_BUILD_LOOKBACK` днів; вдалий пошук кешується 6 год, невдалий — пауза 5 хв.
+- **`MAP.allowNetwork` фіксується при завантаженні `config`** — у тестах `NODE_ENV=test`
+  треба виставляти **до** першого `require('../src/...')`, інакше сервіс піде в мережу
+  (тест стане повільним і нестабільним).
+- `region.pmtiles` для всієї України (z12) — **324 МБ**, тепер **опційний** (офлайн-режим).
+  Генерація без Docker:
   `pmtiles extract <protomaps-планета> out.pmtiles --region=ukraine.geojson --maxzoom=12`
   (бінарник `pmtiles.exe` лежить у `.workbuddy-ai/build-tools/`, не в git). Деталі —
   `docs/TRACKING-MAP.md`.
 - Два місця для файлу: `tiles/region.pmtiles` — том Docker (`./tiles:/app/public/tiles`),
   `public/tiles/region.pmtiles` — локальний запуск. Обидва в `.gitignore`.
-- `/api/tiles` читає файл на кожен запит — перезапуск сервера після копіювання не потрібен.
-- Тайли віддаються через `express.static` з Range — тому SW їх і не перехоплює.
+  `MAP_LOCAL_TILES=0` змушує онлайн-режим навіть коли файл є.
+- `/api/tiles` у мережу **не ходить** (інакше карта чекала б на відповідь перед першим
+  кадром) — він віддає `enabled`/`mode`/`maxZoom`/`cachedTiles` з пам'яті й диска.
+- Тайли віддаються або `express.static` з Range (офлайн-файл), або `GET /tiles/:z/:x/:y.mvt`
+  (онлайн) — у будь-якому разі SW їх не перехоплює.
 
 ## Залежності від середовища
 

@@ -44,6 +44,37 @@ const LIMITS = {
   trackBatch: 50
 };
 
+/**
+ * Підкладка карти.
+ *
+ * За замовчуванням працює онлайн-режим: сервер сам тягне потрібні тайли
+ * з публічного PMTiles-архіву Protomaps (по HTTP Range) і кешує їх на диску.
+ * Локальний файл `public/tiles/region.pmtiles` (якщо є) має приоритет —
+ * це офлайн-режим без інтернету.
+ */
+const MAP = {
+  enabled: process.env.MAP_TILES !== '0',
+  // Пряме посилання на архів; порожнє — беремо найсвіжішу збірку Protomaps
+  archiveUrl: process.env.MAP_TILES_URL || '',
+  buildBase: process.env.MAP_BUILD_BASE || 'https://build.protomaps.com',
+  // Скільки днів назад шукати збірку, якщо сьогоднішньої ще немає
+  buildLookbackDays: Number(process.env.MAP_BUILD_LOOKBACK || 5),
+  maxZoom: Number(process.env.MAP_MAX_ZOOM || 14),
+  // Скільки тайлів дозволено прогрівати одним запитом prefetch
+  prefetchLimit: Number(process.env.MAP_PREFETCH_LIMIT || 400),
+  // Скільки тайлів максимум на один прогрів ділянки рейсу (визначає зум)
+  warmMaxTiles: Number(process.env.MAP_WARM_TILES || 160),
+  // Скільки запитів до архіву тримаємо одночасно (решта чекає в черзі)
+  concurrency: Number(process.env.MAP_CONCURRENCY || 8),
+  cacheDir: process.env.MAP_CACHE_DIR
+    ? path.resolve(process.env.MAP_CACHE_DIR)
+    : path.join(DATA_DIR, 'tilecache'),
+  // Локальний region.pmtiles має приоритет; MAP_LOCAL_TILES=0 змушує онлайн-режим
+  preferLocal: process.env.MAP_LOCAL_TILES !== '0',
+  // У тестах і з MAP_TILES_NETWORK=0 сервер у мережу не ходить зовсім
+  allowNetwork: process.env.MAP_TILES_NETWORK !== '0' && process.env.NODE_ENV !== 'test'
+};
+
 function resolveAdminPassword() {
   const fromEnv = process.env.ADMIN_PASSWORD;
   if (fromEnv && fromEnv.length >= 6) return fromEnv;
@@ -69,6 +100,7 @@ module.exports = {
   SESSION_TOUCH_MS,
   COOKIE_NAME,
   LIMITS,
+  MAP,
   ensureDataDir,
   resolveAdminPassword
 };

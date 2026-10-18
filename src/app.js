@@ -12,7 +12,8 @@ const { createLimiter } = require('./lib/rate-limit');
 const { authMiddleware } = require('./lib/sessions');
 const { createAuthRoutes } = require('./routes/auth');
 
-const { router: metaRoutes, publicTilesRouter } = require('./routes/meta');
+const { router: metaRoutes } = require('./routes/meta');
+const tilesRoutes = require('./routes/tiles');
 const tripsRoutes = require('./routes/trips');
 const deliveriesRoutes = require('./routes/deliveries');
 const recordsRoutes = require('./routes/records');
@@ -63,16 +64,22 @@ function createApp(options = {}) {
     message: 'Перевищено ліміт запитів. Спробуйте за хвилину.'
   });
 
-  app.use('/api', publicTilesRouter);   // без авторизації: наявність офлайн-карти
+  app.use('/api', tilesRoutes.publicRouter);   // без авторизації: стан підкладки
   app.use('/api', apiLimiter, csrfGuard, authMiddleware);
 
   app.use('/api', metaRoutes);
+  app.use('/api', tilesRoutes.router);
   app.use('/api/devices', devicesRoutes);
   app.use('/api/trips', tripsRoutes);
   app.use('/api/deliveries', deliveriesRoutes);
   app.use('/api/records', recordsRoutes);
   app.use('/api/report', reportRoutes);
   app.use('/api/track', trackRoutes);
+
+  // --- Підкладка карти ---
+  // Тайли віддаються до статики: файли з public/tiles мають приоритет (офлайн-режим),
+  // а решта запитів іде в сервіс тайлів «на вимогу».
+  app.use(tilesRoutes.tileRouter);
 
   // --- Статика ---
   const publicDir = path.join(config.ROOT, 'public');

@@ -20,7 +20,7 @@
 2. «Загрузка» створює доставку, «Вигрузка» її закриває; у звіті видно маршрут,
    кілометраж і статус звіту по кожній доставці.
 3. Кожен запис має GPS-координати (або явно позначено, що GPS недоступний).
-4. `npm test` — 89/89 зелені, `npm run check` — без помилок.
+4. `npm test` — 98/98 зелені, `npm run check` — без помилок.
 5. Застосунок відкривається на `https://trip.bojumbohost.pp.ua/`, `/api/health` → `{"status":"ok"}`.
 6. Дані не втрачаються при перезапуску контейнера (том `./data`).
 
@@ -67,12 +67,14 @@ src/
     rate-limit.js         Лімітер + глобальний запобіжник входу
     sessions.js           Cookie-сесії, bcrypt, auth-middleware
   lib/
-    geo.js                Гавайська формула, nearestPointM (дедуплікація автопауз)
+    geo.js                Гавайська формула, nearestPointM, decodePolyline, bboxOfPoints
   services/
     records.js            Бізнес-логіка записів і доставок (insertRecord, deleteRecord)
+    map-tiles.js          Тайли «на вимогу»: Protomaps по HTTP Range + дисковий кеш
   routes/
     auth.js               /api/login, /api/logout, /api/session
-    meta.js               /api/actions, /api/odometer/last, /api/health, /api/tiles
+    meta.js               /api/actions, /api/odometer/last
+    tiles.js              /api/tiles (стан), /tiles/:z/:x/:y.mvt, /api/tiles/warm
     trips.js              CRUD рейсів, /active, /:id/complete, /:id/details
     deliveries.js         PATCH/DELETE доставок
     records.js            CRUD записів, /all, /bulk-import, /bulk-report-status
@@ -87,11 +89,12 @@ public/
   manifest.json           PWA-маніфест
   vendor/chart.umd.min.js Chart.js локально
   icon*.svg|png           Іконки, maskable-варіант
-tests/                    13 файлів, 89 перевірок (node:test); schema-boot і
+tests/                    13 файлів, 98 перевірок (node:test); schema-boot і
                          schema-migration перевіряють міграцію на старій БД
 android/                  Kotlin-трекер (окремий клієнт API), збірка через Actions
 public/vendor/            Chart.js, MapLibre GL JS, pmtiles — локальні копії (CSP 'self')
-tiles/region.pmtiles      офлайн-карта регіону, не в git (див. docs/TRACKING-MAP.md)
+tiles/region.pmtiles      ОПЦІЙНА офлайн-карта регіону, не в git (див. docs/TRACKING-MAP.md)
+data/tilecache/           Кеш тайлів, наповнюється сам, можна видаляти
 scripts/check-syntax.js   npm run check
 data/database.sqlite      БД (том Docker, у git не потрапляє)
 docs/AUDIT-2026-10-17.md  Повний аудит: 52 дефекти + що виправлено

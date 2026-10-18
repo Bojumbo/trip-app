@@ -1908,7 +1908,7 @@ const trackState = {
   loading: false,
   libsReady: false,
   protocolAdded: false,
-  tilesAvailable: null
+  tiles: null
 };
 
 /** Ліниве підключення js/css — карти не тяжнуть основний екран. */
@@ -1994,15 +1994,36 @@ function parseCoords(raw) {
   return [lon, lat];
 }
 
-async function checkTilesAvailable() {
-  if (trackState.tilesAvailable !== null) return trackState.tilesAvailable;
+/**
+ * Стан підкладки: офлайн-файл на сервері, онлайн-тайли «на вимогу» або нічого.
+ * Відповідь кешуємо на сесію — карта відкривається часто, а стан не змінюється.
+ */
+async function getTilesInfo() {
+  if (trackState.tiles) return trackState.tiles;
   try {
     const info = await (await fetch('/api/tiles', { credentials: 'same-origin' })).json();
-    trackState.tilesAvailable = !!info.available;
+    trackState.tiles = info && typeof info === 'object' ? info : { available: false, mode: 'none' };
   } catch {
-    trackState.tilesAvailable = false;
+    trackState.tiles = { available: false, mode: 'none' };
   }
-  return trackState.tilesAvailable;
+  return trackState.tiles;
+}
+
+/** Опис джерела підкладки для MapLibre: локальний архів або тайл-сервер. */
+function basemapSource(info) {
+  if (info.mode === 'offline') {
+    return { type: 'vector', url: 'pmtiles:///tiles/region.pmtiles' };
+  }
+  // Плейсхолдери {z}/{x}/{y} мають лишитися як є: URL-кодування (%7Bz%7D)
+  // робить адресу тайла недійсною, і MapLibre не завантажить жодного тайла.
+  const template = info.tileUrl || '/tiles/{z}/{x}/{y}.mvt';
+  return {
+    type: 'vector',
+    tiles: [location.origin + template],
+    minzoom: 0,
+    maxzoom: Number(info.maxZoom) || 14,
+    attribution: '© OpenStreetMap'
+  };
 }
 
 async function openTrackModal(tripId) {
@@ -2228,14 +2249,20 @@ const BASEMAP_SKIP = new Set([
 function basemapColors(dark) {
   return dark
     ? {
-      earth: '#111a2b', water: '#0a1c2e', landuse: '#16233a', building: '#1b2a3d',
-      road: '#3b4d68', boundary: '#48597a', other: '#26364c'
+      earth: '#141f33', water: '#123a5c', landuse: '#1b2a44', building: '#26374f',
+      road: '#4a5f7d', boundary: '#5a6d8f', other: '#2b3d57'
     }
     : {
-      earth: '#eef2f7', water: '#cfe1f2', landuse: '#e6efe4', building: '#e2e8f0',
-      road: '#d9e1ea', boundary: '#c3cede', other: '#cfd8e4'
+      earth: '#f4f7fa', water: '#b9d7f2', landuse: '#e4eedd', building: '#dde4ee',
+      road: '#cdd7e3', boundary: '#b9c6da', other: '#c4cfe0'
     };
 }
+
+/** Прозорість заливок: земля й вода — щільні, решта — лише відтінок під дорогами. */
+const BASEMAP_FILL_OPACITY = {
+  earth: 1, water: 1, building: 0.85, buildings: 0.85,
+  landcover: 0.35, landuse: 0.45, natural: 0.35, park: 0.3, glacier: 0.6, ice: 0.6
+};
 
 function basemapLayerSpec(name, colors) {
   if (BASEMAP_SKIP.has(name)) return null;
@@ -2250,15 +2277,19 @@ function basemapLayerSpec(name, colors) {
       type: 'fill',
       source: 'region',
       'source-layer': name,
-      paint: { 'fill-color': color, 'fill-opacity': name === 'earth' ? 1 : 0.85 }
+      paint: {
+        'fill-color': color,
+        'fill-opacity': BASEMAP_FILL_OPACITY[name] ?? 0.4
+      }
     };
   }
 
   const isBoundary = name.startsWith('boundary');
   const isRoad = name === 'roads' || name === 'transportation';
+  const isWater = name === 'waterway' || name === 'physical_line';
 
   const paint = {
-    'line-color': isBoundary ? colors.boundary : (isRoad ? colors.road : colors.other),
+    'line-color': isWater ? colors.water : (isBoundary ? colors.boundary : (isRoad ? colors.road : colors.other)),
     'line-width': isRoad
       ? ['interpolate', ['linear'], ['zoom'], 6, 0.5, 10, 0.9, 13, 1.6, 16, 3]
       : ['interpolate', ['linear'], ['zoom'], 6, 0.4, 12, 0.8, 16, 1.4]
@@ -2281,7 +2312,7 @@ function basemapLayerSpec(name, colors) {
  * шар із неіснуючим source-layer просто нічого не малює.
  */
 const BASEMAP_LAYER_ORDER = [
-  'earth', 'landcover', 'landuse', 'park', 'water', 'waterway',
+  'earth', 'landcover', 'landuse', 'park', 'water', 'waterway', 'physical_line',
   'boundary', 'boundaries', 'transportation', 'roads', 'building', 'buildings'
 ];
 
@@ -2329,10 +2360,14 @@ async function renderTrackMap(tripId, segments, records) {
   const mapEl = $('trackMap');
   if (mapEl) mapEl.innerHTML = '';
 
-  const hasTiles = await checkTilesAvailable();
+  const tileInfo = await getTilesInfo();
+  const hasTiles = !!tileInfo.available;
+  const isOffline = tileInfo.mode === 'offline';
   const ml = window.maplibregl;
 
-  if (hasTiles && window.pmtiles && !trackState.protocolAdded) {
+  // Протокол pmtiles:// потрібен лише для локального архіву; онлайн-тайли
+  // беруться звичайним XYZ-джерелом і протоколу не потребують.
+  if (hasTiles && isOffline && window.pmtiles && !trackState.protocolAdded) {
     try {
       ml.addProtocol('pmtiles', new window.pmtiles.Protocol().tile);
       trackState.protocolAdded = true;
@@ -2341,7 +2376,7 @@ async function renderTrackMap(tripId, segments, records) {
 
   // Фон під треком: у темній темі — глибокий сірий, інакше світлий.
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  const mapBg = isDark ? '#111a2b' : '#e9eef5';
+  const mapBg = isDark ? '#0b1220' : '#e9eef5';
 
   const layers = [{
     id: 'bg',
@@ -2403,7 +2438,7 @@ async function renderTrackMap(tripId, segments, records) {
   };
 
   if (hasTiles) {
-    style.sources.region = { type: 'vector', url: 'pmtiles:///tiles/region.pmtiles' };
+    style.sources.region = basemapSource(tileInfo);
   }
 
   const map = new ml.Map({
@@ -2416,6 +2451,9 @@ async function renderTrackMap(tripId, segments, records) {
     pitchWithRotate: false
   });
 
+  if (hasTiles) {
+    map.addControl(new ml.AttributionControl({ compact: true, customAttribution: '© OpenStreetMap' }));
+  }
   map.addControl(new ml.NavigationControl({ showCompass: false }), 'top-right');
   fitToFeatures(map, features, 'all');
 
