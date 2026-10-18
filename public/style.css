@@ -951,3 +951,82 @@ tr:hover { background: rgba(37, 99, 235, 0.03); }
   outline: 2px solid var(--primary, #2563eb);
   outline-offset: 2px;
 }
+
+/* =========================================================
+   Пристрої трекера
+   ========================================================= */
+
+.devices-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.devices-empty {
+  padding: 14px;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  background: var(--surface-sec);
+  border-radius: 10px;
+}
+
+.device-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.device-main { min-width: 0; }
+
+.device-name {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.device-meta {
+  margin-top: 2px;
+  font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.device-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.device-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--success-bg);
+  color: var(--success-text);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.token-box {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px dashed var(--primary);
+  border-radius: 10px;
+  background: var(--surface-sec);
+}
+
+.token-box input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+}

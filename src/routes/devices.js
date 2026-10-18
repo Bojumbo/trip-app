@@ -70,7 +70,9 @@ router.delete('/:id', (req, res) => {
   res.json({ success: true });
 });
 
-/** Призначає пристрій активним трекером (решта — ні). */
+/**
+ * Призначає пристрій активним трекером (решта — ні).
+ */
 router.post('/:id/tracker', (req, res) => {
   const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(req.params.id);
   if (!device) throw new ApiError(404, 'Пристрій не знайдено');
@@ -81,27 +83,6 @@ router.post('/:id/tracker', (req, res) => {
   })();
 
   res.json({ success: true });
-});
-
-/**
- * Стан для самого трекера: чи він активний, чи є відкритий рейс.
- * Викликається з APK при старті та раз на кілька хвилин.
- */
-router.get('/me', (req, res) => {
-  if (req.actor !== 'device') throw new ApiError(403, 'Потрібен токен пристрою');
-
-  const activeTrip = db.prepare("SELECT id, name, start_odometer FROM trips WHERE status = 'active' ORDER BY id DESC LIMIT 1").get();
-  const lastOdometer = db.prepare(`
-    SELECT odometer FROM records
-    WHERE odometer IS NOT NULL AND CAST(odometer AS INTEGER) > 0
-    ORDER BY date DESC, time DESC, id DESC LIMIT 1
-  `).get();
-
-  res.json({
-    device: { id: req.device.id, name: req.device.name, is_tracker: Boolean(req.device.is_tracker) },
-    activeTrip: activeTrip || null,
-    lastOdometer: lastOdometer ? lastOdometer.odometer : null
-  });
 });
 
 module.exports = router;

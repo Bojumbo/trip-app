@@ -60,6 +60,9 @@
             📡
             <span id="offlineCountBadge" class="badge-count">0</span>
           </button>
+          <button class="header-icon-btn" data-action="open-devices" title="Пристрої трекера" aria-label="Пристрої трекера" id="devicesBtn">
+            📱
+          </button>
           <button class="header-icon-btn" data-action="toggle-theme" id="themeBtn" title="Тема" aria-label="Перемкнути тему">🌙</button>
           <button class="header-icon-btn" data-action="logout" title="Вийти" aria-label="Вийти з системи">🚪</button>
         </div>
@@ -384,6 +387,40 @@
       <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;">
         <button class="btn btn-secondary" data-action="close-modal" data-modal="importModal">Скасувати</button>
         <button class="btn btn-primary" id="importBtn" data-action="send-import">Завантажити</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- МОДАЛЬНЕ ВІКНО: ПРИСТРОЇ ТРЕКЕРА -->
+  <div id="devicesModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="devicesModalTitle">
+    <div class="modal-content">
+      <h3 id="devicesModalTitle" style="margin-bottom: 6px; font-size: 1.15rem;">📱 Пристрої трекера</h3>
+      <p style="font-size:0.82rem; color:var(--text-muted); margin-bottom: 12px;">
+        Токен показується один раз — у базі лежить лише його хеш. Вставте його в застосунок
+        трекера на телефоні (поле «Токен пристрою»).
+      </p>
+
+      <div id="devicesList" class="devices-list"></div>
+
+      <div id="newDeviceToken" class="token-box" style="display: none;">
+        <div style="font-size:0.82rem; font-weight:600; margin-bottom: 6px;">Токен нового пристрою</div>
+        <div style="display: flex; gap: 8px;">
+          <input type="text" id="newDeviceTokenValue" readonly autocomplete="off">
+          <button class="btn btn-secondary" data-action="copy-device-token">Копіювати</button>
+        </div>
+        <div style="font-size:0.78rem; color:var(--text-muted); margin-top: 6px;">
+          Закриєте вікно — токен більше не побачите. Загубили? Видаліть пристрій і створіть новий.
+        </div>
+      </div>
+
+      <div class="field-wrap" style="margin-top: 14px;">
+        <label for="deviceNameInput">Назва пристрою</label>
+        <input type="text" id="deviceNameInput" maxlength="100" placeholder="Телефон водія" autocomplete="off">
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;">
+        <button class="btn btn-secondary" data-action="close-modal" data-modal="devicesModal">Закрити</button>
+        <button class="btn btn-primary" data-action="create-device">+ Підключити пристрій</button>
       </div>
     </div>
   </div>

@@ -2385,6 +2385,129 @@ function destroyTrackMap() {
 }
 
 // =========================================================
+// ПРИСТРОЇ ТРЕКЕРА (токен видається один раз)
+// =========================================================
+let devicesCache = [];
+
+function fmtDateTime(ts) {
+  if (!ts) return '';
+  const d = new Date(Number(ts));
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('uk-UA', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false
+  });
+}
+
+async function openDevicesModal() {
+  // Токен попереднього створення не показуємо повторно
+  const tokenBox = $('newDeviceToken');
+  if (tokenBox) tokenBox.style.display = 'none';
+  openModal('devicesModal');
+  await loadDevices();
+}
+
+async function loadDevices() {
+  const host = $('devicesList');
+  if (host) host.innerHTML = '<div class="devices-empty">Завантаження…</div>';
+  try {
+    devicesCache = await api('/api/devices') || [];
+    renderDevices();
+  } catch (e) {
+    if (host) host.innerHTML = `<div class="devices-empty">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderDevices() {
+  const host = $('devicesList');
+  if (!host) return;
+
+  if (!devicesCache.length) {
+    host.innerHTML = '<div class="devices-empty">Пристроїв ще немає. Натисніть «Підключити пристрій».</div>';
+    return;
+  }
+
+  host.innerHTML = devicesCache.map((d) => {
+    const seen = d.last_seen
+      ? `${d.online ? '🟢 онлайн' : '⚪ офлайн'} · ${fmtDateTime(d.last_seen)}`
+      : '⚪ жодного підключення';
+    return `
+      <div class="device-row">
+        <div class="device-main">
+          <div class="device-name">
+            ${escapeHtml(d.name)}
+            ${d.is_tracker ? '<span class="device-badge">трекер</span>' : ''}
+          </div>
+          <div class="device-meta">${escapeHtml(d.platform || 'android')} · ${escapeHtml(seen)}</div>
+          <div class="device-meta">створено ${escapeHtml(fmtDateTime(d.created_at))}</div>
+        </div>
+        <div class="device-actions">
+          ${d.is_tracker ? '' : `<button class="btn btn-secondary" data-action="set-device-tracker" data-id="${d.id}">Зробити трекером</button>`}
+          <button class="btn btn-danger" data-action="delete-device" data-id="${d.id}" title="Видалити пристрій" aria-label="Видалити пристрій">🗑️</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function createDevice() {
+  const nameInput = $('deviceNameInput');
+  const name = (nameInput ? nameInput.value : '').trim() || 'Телефон водія';
+
+  try {
+    const data = await api('/api/devices', {
+      method: 'POST',
+      body: JSON.stringify({ name, platform: 'android' })
+    });
+
+    if (nameInput) nameInput.value = '';
+    const box = $('newDeviceToken');
+    const field = $('newDeviceTokenValue');
+    if (field) field.value = data.token;
+    if (box) box.style.display = 'block';
+
+    showToast('Пристрій створено — скопіюйте токен');
+    await loadDevices();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function copyDeviceToken() {
+  const field = $('newDeviceTokenValue');
+  if (!field || !field.value) return;
+  try {
+    await navigator.clipboard.writeText(field.value);
+    showToast('Токен скопійовано');
+  } catch {
+    field.select();
+    showToast('Скопіюйте вручну: текст уже виділено', 'error');
+  }
+}
+
+async function setDeviceTracker(id) {
+  try {
+    await api(`/api/devices/${id}/tracker`, { method: 'POST' });
+    showToast('Пристрій позначено як трекер');
+    await loadDevices();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+async function deleteDevice(id) {
+  const device = devicesCache.find((d) => d.id === id);
+  const label = device ? device.name : 'цей пристрій';
+  if (!window.confirm(`Видалити «${label}»? Його токен перестане працювати.`)) return;
+
+  try {
+    await api(`/api/devices/${id}`, { method: 'DELETE' });
+    showToast('Пристрій видалено');
+    await loadDevices();
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+// =========================================================
 // ДЕЛЕГОВАНІ ПОДІЇ
 // =========================================================
 // =========================================================
@@ -2393,6 +2516,11 @@ const clickActions = {
   'sync-offline': () => syncOfflineQueue(),
   'toggle-theme': () => toggleTheme(),
   'logout': () => handleLogout(),
+  'open-devices': () => openDevicesModal(),
+  'create-device': () => createDevice(),
+  'copy-device-token': () => copyDeviceToken(),
+  'set-device-tracker': (el) => setDeviceTracker(Number(el.dataset.id)),
+  'delete-device': (el) => deleteDevice(Number(el.dataset.id)),
   'gps-retry': () => fetchGPS(),
   'toggle-form-report': () => toggleFormReportStatus(),
   'toggle-edit-report': () => toggleEditReportStatus(),
