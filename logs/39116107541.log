@@ -1,0 +1,68 @@
+
+Welcome to Gradle 8.7!
+
+Here are the highlights of this release:
+ - Compiling and testing with Java 22
+ - Cacheable Groovy script compilation
+ - New methods in lazy collection properties
+
+For more details see https://docs.gradle.org/8.7/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.7/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:checkKotlinGradlePluginConfigurationErrors
+> Task :app:generateDebugResValues
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:generateDebugResources
+> Task :app:packageDebugResources
+> Task :app:mergeDebugResources
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug
+> Task :app:parseDebugLocalResources
+> Task :app:processDebugMainManifest
+> Task :app:processDebugManifest
+> Task :app:javaPreCompileDebug
+> Task :app:mergeDebugShaders
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets
+> Task :app:desugarDebugFileDependencies
+> Task :app:processDebugManifestForPackage
+> Task :app:mergeDebugStartupProfile
+> Task :app:mergeDebugJniLibFolders
+> Task :app:checkDebugDuplicateClasses
+> Task :app:mergeDebugNativeLibs NO-SOURCE
+> Task :app:processDebugResources
+> Task :app:mergeExtDexDebug
+> Task :app:stripDebugDebugSymbols NO-SOURCE
+> Task :app:mergeLibDexDebug
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+
+> Task :app:compileDebugKotlin
+w: file:///home/runner/work/trip-app/trip-app/android/app/src/main/java/ua/triptracker/tracker/TrackerService.kt:193:39 'create(): LocationRequest' is deprecated. Deprecated in Java
+w: file:///home/runner/work/trip-app/trip-app/android/app/src/main/java/ua/triptracker/tracker/TrackerService.kt:194:13 'setter for interval: Long' is deprecated. Deprecated in Java
+w: file:///home/runner/work/trip-app/trip-app/android/app/src/main/java/ua/triptracker/tracker/TrackerService.kt:195:13 'setter for fastestInterval: Long' is deprecated. Deprecated in Java
+w: file:///home/runner/work/trip-app/trip-app/android/app/src/main/java/ua/triptracker/tracker/TrackerService.kt:196:13 'setter for priority: Int' is deprecated. Deprecated in Java
+w: file:///home/runner/work/trip-app/trip-app/android/app/src/main/java/ua/triptracker/tracker/TrackerService.kt:196:40 'PRIORITY_BALANCED_POWER_ACCURACY: Int' is deprecated. Deprecated in Java
+w: file:///home/runner/work/trip-app/trip-app/android/app/src/main/java/ua/triptracker/tracker/TrackerService.kt:197:13 'setter for maxWaitTime: Long' is deprecated. Deprecated in Java
+w: file:///home/runner/work/trip-app/trip-app/android/app/src/main/java/ua/triptracker/tracker/TrackerService.kt:243:32 Parameter 'now' is never used
+
+> Task :app:compileDebugJavaWithJavac NO-SOURCE
+> Task :app:dexBuilderDebug
+> Task :app:mergeDebugGlobalSynthetics
+> Task :app:processDebugJavaRes
+> Task :app:mergeProjectDexDebug
+> Task :app:mergeDebugJavaResource
+> Task :app:packageDebug
+> Task :app:createDebugApkListingFileRedirect
+> Task :app:assembleDebug
+
+BUILD SUCCESSFUL in 1m 46s
+35 actionable tasks: 35 executed
