@@ -39,12 +39,29 @@
 - Лог збірки CI дублюється у гілку `ci-logs` (`logs/<run_id>.log`) — читається
   звичайним `git fetch origin ci-logs`, бо API віддає артефакти лише адмінам.
 
+## Локальна збірка APK (без CI)
+
+- JDK 17 і Gradle 8.7 лежать у `.workbuddy-ai/build-tools/` (каталог у `.gitignore`).
+  `JAVA_HOME=E:/trip-app/.workbuddy-ai/build-tools/jdk-17.0.20.1+1`,
+  Gradle — `.workbuddy-ai/build-tools/gradle-8.7/bin/gradle`.
+- `android/local.properties` (не в git): `sdk.dir=C\:\\Users\\<user>\\AppData\\Local\\Android\\Sdk`.
+- Мережа тут через проксі → Gradle потрібні system properties:
+  `GRADLE_OPTS="-Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=<порт> -Dhttps.proxyHost=... -Dhttps.proxyPort=..."`
+  (порт — з `HTTP_PROXY`; без них завантаження залежностей висить).
+- У SDK є лише `platforms/android-37.0`; AGP сам доставляє `platforms;android-34` і
+  `build-tools;34.0.0`, бо ліцензія вже прийнята (`licenses/android-sdk-license`).
+- Перша збірка ~5 хв, далі швидше: `gradle assembleDebug --no-daemon` →
+  `android/app/build/outputs/apk/debug/app-debug.apk`.
+- Debug-підпис генерується локально (`~/.android/debug.keystore`) і **не збігається** з підписом
+  CI: APK з різних джерел не оновлюють один одного — треба видалити застосунок.
+
 ## Залежності від середовища
 
 - `better-sqlite3` **вмикає `foreign_keys` за замовчуванням** (v7+), тож `CASCADE`
   спрацьовує і без явного `PRAGMA`. Але явний `db.pragma('foreign_keys = ON')`
   у `src/db/index.js` лишається — як документація наміру.
-- JDK лише 8, Gradle відсутній -> APK збирається через GitHub Actions, не локально.
+- У PATH JDK лише 8, а AGP 8 потребує 17 → для локальної збірки беремо JDK 17
+  з `.workbuddy-ai/build-tools` (розділ вище).
 - Локальний `curl` у цьому середовищі йде через проксі: для localhost обов'язково
   `curl --noproxy '*'`, інакше `exit code 7`.
 - Windows-python `/tmp` != Git Bash `/tmp`. Проміжні файли класти в `.workbuddy-ai/`.
@@ -70,3 +87,5 @@
 | 2026-10-17 | Будь-яка зміна `src/db/schema.js` -> тест, що відкриває БД зі старою схемою |
 | 2026-10-17 | Нова колонка + індекс -> індекс після `addColumnIfMissing`, не в DDL |
 | 2026-10-17 | Перед пушем у прод: локально `npm test` + відкрити legacy-файл БД |
+| 2026-10-18 | Трекер: у `worker` (один потік) не можна тримати блокуючий цикл — він займає його назавжди; цикли → окремий потік |
+| 2026-10-18 | Kotlin: виклик усередині `apply { }` іде на ресивер; після блоку потрібен явний `obj.put(...)`, інакше `Unresolved reference` (ловить лише компілятор) |

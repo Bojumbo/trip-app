@@ -20,7 +20,7 @@
 2. «Загрузка» створює доставку, «Вигрузка» її закриває; у звіті видно маршрут,
    кілометраж і статус звіту по кожній доставці.
 3. Кожен запис має GPS-координати (або явно позначено, що GPS недоступний).
-4. `npm test` — 59/59 зелені, `npm run check` — без помилок.
+4. `npm test` — 89/89 зелені, `npm run check` — без помилок.
 5. Застосунок відкривається на `https://trip.bojumbohost.pp.ua/`, `/api/health` → `{"status":"ok"}`.
 6. Дані не втрачаються при перезапуску контейнера (том `./data`).
 
@@ -87,10 +87,10 @@ public/
   manifest.json           PWA-маніфест
   vendor/chart.umd.min.js Chart.js локально
   icon*.svg|png           Іконки, maskable-варіант
-tests/                    10 файлів, 89 перевірок (node:test); schema-boot і
+tests/                    13 файлів, 89 перевірок (node:test); schema-boot і
                          schema-migration перевіряють міграцію на старій БД
 android/                  Kotlin-трекер (окремий клієнт API), збірка через Actions
-vendor/maplibre-gl.js     MapLibre + pmtiles локально (карта маршруту)
+public/vendor/            Chart.js, MapLibre GL JS, pmtiles — локальні копії (CSP 'self')
 tiles/region.pmtiles      офлайн-карта регіону, не в git (див. docs/TRACKING-MAP.md)
 scripts/check-syntax.js   npm run check
 data/database.sqlite      БД (том Docker, у git не потрапляє)

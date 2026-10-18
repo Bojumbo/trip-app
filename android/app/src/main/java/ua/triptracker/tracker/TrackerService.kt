@@ -11,7 +11,6 @@ import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
-import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -107,7 +106,15 @@ class TrackerService : Service() {
         val odometer: Int,
         var recordId: Int
     )
+    @Volatile
     private var pause: ActivePause? = null
+
+    /**
+     * Стан сегмента й чергу чіпають три різні потоки: колбек локацій (main),
+     * вартовий рейсу та воркер відправки. ArrayDeque не потокобезпечний,
+     * тому всі звернення — під цим замком.
+     */
+    private val segLock = Any()
 
     /** Черга серіалізованих сегментів на відправку. */
     private val pendingJson = ArrayDeque<String>()
@@ -142,7 +149,8 @@ class TrackerService : Service() {
         }
 
         restoreQueue()
-        worker.execute(::checkTripAndSync)
+        lastFlushAt = System.currentTimeMillis()
+        startTripWatcher()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -307,25 +315,28 @@ class TrackerService : Service() {
     }
 
     private fun addPoint(point: TrackPoint) {
-        if (segmentPoints.isEmpty()) {
-            segmentMode = currentMode()
-            segmentStartedAt = point.time
-        } else if (segmentMode != currentMode() || segmentPoints.size >= MAX_SEGMENT_POINTS) {
-            closeSegment()
-            segmentMode = currentMode()
-            segmentStartedAt = point.time
-        }
+        synchronized(segLock) {
+            if (segmentPoints.isEmpty()) {
+                segmentMode = currentMode()
+                segmentStartedAt = point.time
+            } else if (segmentMode != currentMode() || segmentPoints.size >= MAX_SEGMENT_POINTS) {
+                closeSegmentLocked()
+                segmentMode = currentMode()
+                segmentStartedAt = point.time
+            }
 
-        if (segmentPoints.isNotEmpty()) {
-            val prev = segmentPoints.last()
-            val results = FloatArray(1)
-            Location.distanceBetween(prev.lat, prev.lon, point.lat, point.lon, results)
-            segmentDistance += results[0].roundToInt().toLong()
+            if (segmentPoints.isNotEmpty()) {
+                val prev = segmentPoints.last()
+                val results = FloatArray(1)
+                Location.distanceBetween(prev.lat, prev.lon, point.lat, point.lon, results)
+                segmentDistance += results[0].roundToInt().toLong()
+            }
+            segmentPoints.add(point)
         }
-        segmentPoints.add(point)
     }
 
-    private fun closeSegment() {
+    /** Закриває поточний сегмент і ставить його в чергу. Викликати лише під [segLock]. */
+    private fun closeSegmentLocked() {
         if (segmentPoints.isEmpty()) return
         val segment = TrackSegment(
             mode = segmentMode,
@@ -342,9 +353,15 @@ class TrackerService : Service() {
         segmentDistance = 0L
     }
 
+    private fun closeSegment() {
+        synchronized(segLock) { closeSegmentLocked() }
+    }
+
     private fun maybeFlush(now: Long) {
-        val lastAt = lastFlushAt
-        if (segmentPoints.size >= MAX_SEGMENT_POINTS || (now - lastAt > 5 * 60_000L && pendingJson.size < MAX_PENDING_SEGMENTS)) {
+        val points = synchronized(segLock) { segmentPoints.size }
+        // Раніше тут був ще й «pendingJson.size < MAX» — через це черга, заповнившись,
+        // переставала відправлятись узагалі. Відправляємо завжди, коли час.
+        if (points >= MAX_SEGMENT_POINTS || now - lastFlushAt > 5 * 60_000L) {
             flushSegments()
         }
     }
@@ -353,23 +370,33 @@ class TrackerService : Service() {
 
     private fun flushSegments() {
         lastFlushAt = System.currentTimeMillis()
-        closeSegment()
-        if (pendingJson.isEmpty()) { persistQueue(); return }
 
-        val batch = pendingJson.take(20)
+        val batch = synchronized(segLock) {
+            closeSegmentLocked()
+            if (pendingJson.isEmpty()) emptyList<String>() else pendingJson.take(20)
+        }
+        if (batch.isEmpty()) {
+            persistQueue()
+            return
+        }
+
         val segments = batch.joinToString(",", "[", "]") { it }
 
         worker.execute {
             when (val result = api.post("/api/track/segments", JSONObject("{\"segments\":$segments}"))) {
                 is ApiResult.Ok -> {
+                    // Сервер відповідає { saved, skipped }: skipped — це сегменти,
+                    // які вже були збережені раніше (дедуплікація за client_uuid).
+                    // Обидва стани термінальні, тому знімаємо з черги всю пачку —
+                    // інакше дублі лишалися б у черзі назавжди й вона б не танула.
                     val body = JSONObject(result.body)
-                    val sent = body.optInt("saved", batch.size)
-                    repeat(sent) { if (pendingJson.isNotEmpty()) pendingJson.removeFirst() }
+                    val handled = body.optInt("saved", 0) + body.optInt("skipped", 0)
+                    if (handled > 0) dropFromQueue(batch.size)
                 }
                 is ApiResult.Err -> {
                     // немає активного рейсу чи доступу — очищаємо, щоб черга не росла
                     if (result.code == 409 || result.code == 401 || result.code == 403) {
-                        repeat(batch.size) { if (pendingJson.isNotEmpty()) pendingJson.removeFirst() }
+                        dropFromQueue(batch.size)
                     }
                 }
                 ApiResult.Offline -> Unit
@@ -379,13 +406,24 @@ class TrackerService : Service() {
         }
     }
 
+    private fun dropFromQueue(count: Int) {
+        synchronized(segLock) {
+            repeat(count) { if (pendingJson.isNotEmpty()) pendingJson.removeFirst() }
+        }
+    }
+
+    private fun isQueueEmpty(): Boolean = synchronized(segLock) { pendingJson.isEmpty() }
+
+    private fun queueSize(): Int = synchronized(segLock) { pendingJson.size }
+
     // ---------------- Черга ----------------
 
     private fun queueFile() = java.io.File(filesDir, "segments_queue.jsonl")
 
     private fun persistQueue() {
+        val text = synchronized(segLock) { pendingJson.joinToString("\n") }
         try {
-            queueFile().writeText(pendingJson.joinToString("\n"))
+            queueFile().writeText(text)
         } catch (e: Exception) {
             // запис черги не критичний
         }
@@ -395,9 +433,11 @@ class TrackerService : Service() {
         val file = queueFile()
         if (!file.exists()) return
         try {
-            file.readLines().filter { it.isNotBlank() }.forEach { line ->
-                val obj = org.json.JSONObject(line)
-                pendingJson.addLast(obj.toString())
+            val lines = file.readLines().filter { it.isNotBlank() }
+            synchronized(segLock) {
+                lines.forEach { line ->
+                    pendingJson.addLast(org.json.JSONObject(line).toString())
+                }
             }
         } catch (e: Exception) {
             // пошкоджену чергу ігноруємо
@@ -406,26 +446,48 @@ class TrackerService : Service() {
 
     // ---------------- Синхронізація стану ----------------
 
-    private fun checkTripAndSync() {
-        while (prefs.trackingEnabled) {
-            val active = checkTrip()
-            if (active) {
-                tripActive = true
-                if (!locationsAttached) { requestLocations(); locationsAttached = true }
-                if (pendingJson.isNotEmpty()) flushSegments()
-            } else {
-                tripActive = false
-                if (locationsAttached) {
-                    fused.removeLocationUpdates(locationCallback)
-                    locationsAttached = false
-                    closeSegment()
-                    persistQueue()
+    /**
+     * Вартовий рейсу живе в окремому потоці, а не у [worker]: цикл із паузою
+     * назавжди зайняв би єдиний потік воркера, і жодна відправка (сегменти,
+     * «Продовження руху») не виконалася б, поки триває рейс.
+     */
+    private fun startTripWatcher() {
+        val thread = Thread {
+            while (prefs.trackingEnabled) {
+                try {
+                    watchOnce()
+                } catch (e: Exception) {
+                    // мережа чи JSON — не привід падати, наступна ітерація повторить
+                }
+                try {
+                    Thread.sleep(30_000L)
+                } catch (e: InterruptedException) {
+                    break
                 }
             }
-            updateTrackerNotification()
-            lastTripCheckAt = System.currentTimeMillis()
-            SystemClock.sleep(30_000L)
         }
+        thread.name = "trip-watcher"
+        thread.isDaemon = true
+        thread.start()
+    }
+
+    private fun watchOnce() {
+        val active = checkTrip()
+        if (active) {
+            tripActive = true
+            if (!locationsAttached) requestLocations()
+            if (!isQueueEmpty()) flushSegments()
+        } else {
+            tripActive = false
+            if (locationsAttached) {
+                fused.removeLocationUpdates(locationCallback)
+                locationsAttached = false
+                closeSegment()
+                persistQueue()
+            }
+        }
+        updateTrackerNotification()
+        lastTripCheckAt = System.currentTimeMillis()
     }
 
     private fun checkTrip(): Boolean {
@@ -475,7 +537,7 @@ class TrackerService : Service() {
         val text = when {
             prefs.serverUrl.isBlank() || prefs.deviceToken.isBlank() -> "Налаштуйте адресу та токен"
             pause != null -> "Пауза — рух пішки фіксується"
-            tripActive -> "Трекінг активний" + if (pendingJson.isNotEmpty()) " · у черзі ${pendingJson.size}" else ""
+            tripActive -> "Трекінг активний" + if (queueSize() > 0) " · у черзі ${queueSize()}" else ""
             else -> "Очікування відкритого рейсу"
         }
 

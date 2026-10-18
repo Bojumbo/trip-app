@@ -69,7 +69,8 @@ data class TrackSegment(
             put("polyline", Polyline.encode(points))
             put("client_uuid", "seg-$startedAt$suffix")
         }
-        if (pauseRecordId != null && pauseRecordId > 0) put("pause_record_id", pauseRecordId)
+        val pauseId = pauseRecordId
+        if (pauseId != null && pauseId > 0) json.put("pause_record_id", pauseId)
         return json
     }
 }

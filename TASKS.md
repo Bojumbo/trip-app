@@ -5,13 +5,15 @@
 
 ## 🔴 Зараз
 
-1. **Зібрати APK трекера** — `git push` → GitHub Actions → `app-debug.apk` → поставити на Android.
-   Потім у веб-застосунку «Підключити пристрій» → токен → вставити в APK (або QR).
+1. **Поставити APK на Android** — файл `android/app/build/outputs/apk/debug/app-debug.apk`
+   (v1.3.2, зібрано 2026-10-18, 5.9 МБ). У веб-застосунку «Підключити пристрій» → токен →
+   вставити в APK. Підпис — debug: якщо раніше ставили APK з іншого джерела (CI), спершу видалити.
 2. **Редеплой у Portainer** — Stacks → `trip-tracker` → Pull and redeploy.
    Перевірити `https://trip.bojumbohost.pp.ua/api/health` → `{"status":"ok"}`, увійти заново.
-   Додати том `./tiles:/app/public/tiles` (у `docker-compose.yml` вже прописано).
+   Том `./tiles:/app/public/tiles` уже прописано в `docker-compose.yml`.
 3. **Офлайн-тест на реальному телефоні** — внести запис у режимі польоту, повернути мережу,
    переконатися що запис з'явився рівно один раз (ідемпотентність `client_uuid`).
+   Також перевірити, що сегменти маршруту доходять до сервера (у звіті — 🗺️ маршрут).
 
 ## 🟡 Далі
 
@@ -37,6 +39,11 @@
 
 ## ✅ Зроблено
 
+- **2026-10-18** — APK збирається: `Polyline.kt` — `put()` стояв поза `apply` (v1.3.2).
+- **2026-10-18** — Трекер: вартовий рейсу винесено з `worker` (блокував усі відправки),
+  черга тане (`saved + skipped`), потоки під `segLock`.
+- **2026-10-18** — Локальна збірка APK без CI: JDK 17 + Gradle 8.7 у `.workbuddy-ai/build-tools`,
+  `BUILD SUCCESSFUL`, `app-debug.apk` 5.9 МБ.
 - **2026-10-17** — Трекер: бекенд `devices` + `track_segments`, `/api/track/segments`, geo-хелпери (v1.3.0).
 - **2026-10-17** — Android-проєкт `android/` (Kotlin): foreground service, FusedLocation, детекція зупинки,
   діалог «Це пауза?» з одометром, офлайн-черга сегментів, CI-збірка `app-debug.apk`.
