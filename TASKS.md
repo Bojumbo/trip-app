@@ -44,6 +44,8 @@
   черга тане (`saved + skipped`), потоки під `segLock`.
 - **2026-10-18** — Локальна збірка APK без CI: JDK 17 + Gradle 8.7 у `.workbuddy-ai/build-tools`,
   `BUILD SUCCESSFUL`, `app-debug.apk` 5.9 МБ.
+- **2026-10-18** — CI зелений після пушу: run `39116107541`, `BUILD SUCCESSFUL` 1 хв 46 с,
+  артефакт `trip-tracker-apk`.
 - **2026-10-17** — Трекер: бекенд `devices` + `track_segments`, `/api/track/segments`, geo-хелпери (v1.3.0).
 - **2026-10-17** — Android-проєкт `android/` (Kotlin): foreground service, FusedLocation, детекція зупинки,
   діалог «Це пауза?» з одометром, офлайн-черга сегментів, CI-збірка `app-debug.apk`.

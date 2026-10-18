@@ -28,6 +28,7 @@ CI падав на компіляції Kotlin, тому `app-debug.apk` не і
 **Перевірка**
 - Локальна збірка тим самим Gradle 8.7 / AGP 8.5.2 / Kotlin 1.9.24: `BUILD SUCCESSFUL`,
   `app-debug.apk` 5.9 МБ (`versionCode=1`, `minSdk 24`, `targetSdk 34`).
+- CI після пушу: run `39116107541` — **BUILD SUCCESSFUL** за 1 хв 46 с, артефакт `trip-tracker-apk`.
 - Кодек polyline перевірено round-trip'ом: `Polyline.encode` (Kotlin-алгоритм) → `decodePolyline`
   з `public/app.js` → координати збігаються до 5 знаків.
 - `npm test` → **89/89**, `npm run check` → 39 файлів.
