@@ -88,6 +88,7 @@ public/
   sw.js                   Service Worker, CACHE_NAME = версія релізу
   manifest.json           PWA-маніфест
   vendor/chart.umd.min.js Chart.js локально
+  glyphs/                 Гліфи Noto Sans (кирилиця) для підписів карти, ~540 КБ
   icon*.svg|png           Іконки, maskable-варіант
 tests/                    13 файлів, 98 перевірок (node:test); schema-boot і
                          schema-migration перевіряють міграцію на старій БД

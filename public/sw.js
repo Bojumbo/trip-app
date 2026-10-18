@@ -1,6 +1,6 @@
 ﻿﻿/* Service Worker — офлайн-режим */
 
-const CACHE_NAME = 'trip-tracker-v11';
+const CACHE_NAME = 'trip-tracker-v12';
 const STATIC_ASSETS = [
   '/',
   '/index.html',

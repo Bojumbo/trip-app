@@ -2316,6 +2316,165 @@ const BASEMAP_LAYER_ORDER = [
   'boundary', 'boundaries', 'transportation', 'roads', 'building', 'buildings'
 ];
 
+/**
+ * Підписи підкладки: міста, села, вулиці, водойми.
+ *
+ * Текст у тайлах уже є: `places` має `name` і `name:uk`, `roads` — `name` вулиці,
+ * `water` — назву моря/річки. Показуємо українською, якщо вона є (водієві так
+ * читабельніше), інакше — місцевою назвою. Кожен об'єкт несе `min_zoom`, тому
+ * фільтр `min_zoom <= zoom` сам прибирає зайве на дрібному масштабі.
+ *
+ * Для символів потрібні гліфи — локальні PBF у `public/glyphs/` (Noto Sans,
+ * кирилиця включно). Без них MapLibre просто не намалює текст.
+ */
+const LABEL_FONT = ['Noto Sans Regular'];
+
+function basemapLabelSpecs(dark) {
+  const cityText = dark ? '#e8eefa' : '#2b3850';
+  const townText = dark ? '#c6d3e5' : '#455468';
+  const roadText = dark ? '#a9bcd4' : '#5f6f88';
+  const waterText = dark ? '#8fb8dc' : '#4a7fa8';
+  const halo = dark ? '#0b1220' : '#ffffff';
+
+  const visible = ['<=', ['get', 'min_zoom'], ['zoom']];
+  const label = ['coalesce', ['get', 'name:uk'], ['get', 'name']];
+  // Більші міста мають вищий population_rank — вони мають і малюватись першими.
+  const byRank = ['*', -1, ['coalesce', ['get', 'population_rank'], 0]];
+
+  return [
+    {
+      id: 'region-label-country',
+      type: 'symbol',
+      source: 'region',
+      'source-layer': 'places',
+      // 'any' замість 'in' зі списком: однаково швидко, але не залежить від
+      // підтримки масивів у фільтрах конкретної версії MapLibre.
+      filter: ['all',
+        ['any', ['==', ['get', 'kind'], 'country'], ['==', ['get', 'kind'], 'region']],
+        visible],
+      layout: {
+        'text-field': label,
+        'text-font': LABEL_FONT,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 3, 11, 7, 13, 10, 15],
+        'text-transform': 'uppercase',
+        'text-letter-spacing': 0.12,
+        'text-max-width': 8,
+        'text-padding': 8,
+        'symbol-sort-key': byRank
+      },
+      paint: { 'text-color': townText, 'text-halo-color': halo, 'text-halo-width': 1.4 }
+    },
+    {
+      // Великі міста (population_rank >= 9). Окремий шар, а не множник у
+      // text-size: MapLibre дозволяє ['zoom'] лише на верхньому рівні
+      // step/interpolate, тому ієрархія розмірів робиться шарами.
+      id: 'region-label-city',
+      type: 'symbol',
+      source: 'region',
+      'source-layer': 'places',
+      filter: ['all',
+        ['==', ['get', 'kind'], 'locality'],
+        ['>=', ['coalesce', ['get', 'population_rank'], 0], 9],
+        visible],
+      layout: {
+        'text-field': label,
+        'text-font': LABEL_FONT,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 4, 11, 9, 14, 14, 17],
+        'text-max-width': 9,
+        'text-padding': 8,
+        'symbol-sort-key': byRank
+      },
+      paint: { 'text-color': cityText, 'text-halo-color': halo, 'text-halo-width': 1.5 }
+    },
+    {
+      // Міста середнього розміру (6…8).
+      id: 'region-label-town',
+      type: 'symbol',
+      source: 'region',
+      'source-layer': 'places',
+      filter: ['all',
+        ['==', ['get', 'kind'], 'locality'],
+        ['>=', ['coalesce', ['get', 'population_rank'], 0], 6],
+        ['<', ['coalesce', ['get', 'population_rank'], 0], 9],
+        visible],
+      layout: {
+        'text-field': label,
+        'text-font': LABEL_FONT,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 6, 11, 11, 13, 16, 15],
+        'text-max-width': 9,
+        'text-padding': 6,
+        'symbol-sort-key': byRank
+      },
+      paint: { 'text-color': cityText, 'text-halo-color': halo, 'text-halo-width': 1.4 }
+    },
+    {
+      // Села й селища. Райони міста (neighbourhood/suburb) і урочища сюди не
+      // потрапляють: у Києві вони давали підписи на кшталт «Козине болото»
+      // розміром з місто — візуальний шум замість орієнтирів.
+      id: 'region-label-village',
+      type: 'symbol',
+      source: 'region',
+      'source-layer': 'places',
+      filter: ['all',
+        ['==', ['get', 'kind'], 'locality'],
+        ['!=', ['get', 'kind_detail'], 'neighbourhood'],
+        ['!=', ['get', 'kind_detail'], 'suburb'],
+        ['!=', ['get', 'kind_detail'], 'quarter'],
+        ['!=', ['get', 'kind_detail'], 'borough'],
+        ['!=', ['get', 'kind_detail'], 'isolated_dwelling'],
+        ['!=', ['get', 'kind_detail'], 'locality'],
+        ['!=', ['get', 'kind_detail'], 'hamlet'],
+        ['<', ['coalesce', ['get', 'population_rank'], 0], 6],
+        visible],
+      layout: {
+        'text-field': label,
+        'text-font': LABEL_FONT,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 13, 12, 16, 14],
+        'text-max-width': 9,
+        'text-padding': 4,
+        'symbol-sort-key': byRank
+      },
+      paint: { 'text-color': townText, 'text-halo-color': halo, 'text-halo-width': 1.2 }
+    },
+    {
+      id: 'region-label-water',
+      type: 'symbol',
+      source: 'region',
+      'source-layer': 'water',
+      filter: ['all', ['has', 'name'], visible],
+      layout: {
+        'text-field': label,
+        'text-font': LABEL_FONT,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 5, 11, 10, 13, 14, 14],
+        'text-letter-spacing': 0.05,
+        'text-max-width': 7,
+        'text-padding': 4
+      },
+      paint: { 'text-color': waterText, 'text-halo-color': halo, 'text-halo-width': 1.1 }
+    },
+    {
+      id: 'region-label-road',
+      type: 'symbol',
+      source: 'region',
+      'source-layer': 'roads',
+      filter: ['all', ['has', 'name'], visible],
+      layout: {
+        'symbol-placement': 'line',
+        'text-field': ['get', 'name'],
+        'text-font': LABEL_FONT,
+        'text-size': ['interpolate', ['linear'], ['zoom'], 12, 11, 15, 12, 17, 14],
+        'symbol-spacing': 260,
+        'text-padding': 2,
+        'text-max-angle': 30,
+        'text-rotation-alignment': 'map',
+        'text-keep-upright': true,
+        'symbol-sort-key': ['coalesce', ['get', 'sort_rank'], 400]
+      },
+      paint: { 'text-color': roadText, 'text-halo-color': halo, 'text-halo-width': 1.2 }
+    }
+  ];
+}
+
 /** Порядок шарів: спершу заливки, потім лінії, трек — завжди зверху. */
 function basemapLayerNames(map) {
   const src = map.getSource('region');
@@ -2336,6 +2495,14 @@ function addBasemapLayers(map, dark) {
       map.addLayer(spec, 'track-drive');
     } catch { /* шар не підтримується — пропускаємо */ }
   });
+
+  // Підписи — останніми, щоб лягли поверх дорог і заливок, але під треком.
+  basemapLabelSpecs(dark).forEach((spec) => {
+    if (map.getLayer(spec.id)) return;
+    try {
+      map.addLayer(spec, 'track-drive');
+    } catch { /* немає гліфів або source-layer — без підписів */ }
+  });
 }
 
 /** Перефарбовує підкладку при зміні теми (карта може бути відкрита). */
@@ -2349,6 +2516,14 @@ function recolorBasemap(map, dark) {
     try {
       if (spec.type === 'fill') map.setPaintProperty(id, 'fill-color', spec.paint['fill-color']);
       else map.setPaintProperty(id, 'line-color', spec.paint['line-color']);
+    } catch { /* ignore */ }
+  });
+
+  basemapLabelSpecs(dark).forEach((spec) => {
+    if (!map.getLayer(spec.id)) return;
+    try {
+      map.setPaintProperty(spec.id, 'text-color', spec.paint['text-color']);
+      map.setPaintProperty(spec.id, 'text-halo-color', spec.paint['text-halo-color']);
     } catch { /* ignore */ }
   });
 }
@@ -2468,6 +2643,8 @@ async function renderTrackMap(tripId, segments, records) {
 
   if (hasTiles) {
     style.sources.region = basemapSource(tileInfo);
+    // Гліфи для підписів: локальні PBF (Noto Sans, кирилиця), без CDN — CSP 'self'.
+    style.glyphs = '/glyphs/{fontstack}/{range}.pbf';
   }
 
   const map = new ml.Map({
