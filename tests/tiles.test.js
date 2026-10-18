@@ -10,6 +10,8 @@ const { startTestServer, createClient } = require('./helpers');
 
 const { decodePolyline, bboxOfPoints } = require('../src/lib/geo');
 const { tilesForBbox, chooseZoom } = require('../src/services/map-tiles');
+const { buildUpstreamUrl } = require('../src/services/map-satellite');
+const config = require('../src/config');
 
 // ---------------------------------------------------------------- чисті функції
 
@@ -140,4 +142,62 @@ test('/api/tiles/warm вимагає авторизації та коректн�
   assert.equal(typeof ok.data.requested, 'number');
   // Без мережі жоден тайл не завантажиться, але відповідь має бути валідною.
   assert.equal(ok.data.ready, 0);
+});
+
+// ------------------------------------------------------------------- супутник
+
+test('адреса тайла Esri: порядок саме z/y/x', () => {
+  // Esri World_Imagery чекає /tile/{z}/{row}/{col}, тобто y перед x. Якщо
+  // переплутати — карта поїде в іншу частину світу без жодної помилки.
+  const url = buildUpstreamUrl(14, 9581, 5525);
+  assert.ok(url.endsWith('/tile/14/5525/9581'), `несподівана адреса: ${url}`);
+  assert.ok(url.includes('World_Imagery'), 'має бути саме World_Imagery');
+});
+
+test('адреса тайла додає ключ, якщо він є', () => {
+  const original = config.MAP.satelliteToken;
+  try {
+    config.MAP.satelliteToken = 'KEY123';
+    const url = buildUpstreamUrl(3, 4, 5);
+    assert.ok(url.includes('token=KEY123'), `ключ не додано: ${url}`);
+    assert.ok(url.includes('/tile/3/5/4'), `порядок z/y/x збито: ${url}`);
+  } finally {
+    config.MAP.satelliteToken = original;
+  }
+});
+
+test('/api/tiles розповідає клієнту про супутник', async () => {
+  const info = await (await fetch(`${server.base}/api/tiles`)).json();
+
+  assert.ok(info.satellite && typeof info.satellite === 'object', 'немає блоку satellite');
+  assert.equal(info.satellite.tileUrl, '/satellite/{z}/{x}/{y}.jpg');
+  assert.equal(typeof info.satellite.maxZoom, 'number');
+  assert.ok(info.satellite.maxZoom >= 17, 'супутник має пускати принаймні до z17');
+  // Атрибуція Esri обов'язкова — без неї не можна показувати їхні знімки.
+  assert.ok(String(info.satellite.attribution).includes('Esri'));
+});
+
+test('/satellite/:z/:x/:y.jpg відхиляє некоректні координати', async () => {
+  for (const bad of ['/satellite/99/0/0.jpg', '/satellite/1/5/0.jpg', '/satellite/x/0/0.jpg']) {
+    const res = await fetch(server.base + bad);
+    assert.equal(res.status, 400, `${bad} має давати 400`);
+  }
+});
+
+test('/satellite без мережі віддає 404, а не 500', async () => {
+  const res = await fetch(`${server.base}/satellite/14/9581/5525.jpg`);
+  assert.equal(res.status, 404);
+});
+
+test('/satellite поважає MAP_SATELLITE=0', async () => {
+  const original = config.MAP.satellite;
+  try {
+    config.MAP.satellite = false;
+    const res = await fetch(`${server.base}/satellite/14/9581/5525.jpg`);
+    assert.equal(res.status, 404);
+    const body = await res.json();
+    assert.ok(body.error.includes('MAP_SATELLITE'));
+  } finally {
+    config.MAP.satellite = original;
+  }
 });

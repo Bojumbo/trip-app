@@ -20,7 +20,7 @@
 2. «Загрузка» створює доставку, «Вигрузка» її закриває; у звіті видно маршрут,
    кілометраж і статус звіту по кожній доставці.
 3. Кожен запис має GPS-координати (або явно позначено, що GPS недоступний).
-4. `npm test` — 98/98 зелені, `npm run check` — без помилок.
+4. `npm test` — 104/104 зелені, `npm run check` — без помилок.
 5. Застосунок відкривається на `https://trip.bojumbohost.pp.ua/`, `/api/health` → `{"status":"ok"}`.
 6. Дані не втрачаються при перезапуску контейнера (том `./data`).
 
@@ -71,10 +71,11 @@ src/
   services/
     records.js            Бізнес-логіка записів і доставок (insertRecord, deleteRecord)
     map-tiles.js          Тайли «на вимогу»: Protomaps по HTTP Range + дисковий кеш
+    map-satellite.js      Проксі до Esri World Imagery, добовий кеш за Cache-Control
   routes/
     auth.js               /api/login, /api/logout, /api/session
     meta.js               /api/actions, /api/odometer/last
-    tiles.js              /api/tiles (стан), /tiles/:z/:x/:y.mvt, /api/tiles/warm
+    tiles.js              /api/tiles (стан), /tiles/:z/:x/:y.mvt, /satellite/:z/:x/:y.jpg, /api/tiles/warm
     trips.js              CRUD рейсів, /active, /:id/complete, /:id/details
     deliveries.js         PATCH/DELETE доставок
     records.js            CRUD записів, /all, /bulk-import, /bulk-report-status
@@ -90,7 +91,7 @@ public/
   vendor/chart.umd.min.js Chart.js локально
   glyphs/                 Гліфи Noto Sans (кирилиця) для підписів карти, ~540 КБ
   icon*.svg|png           Іконки, maskable-варіант
-tests/                    13 файлів, 98 перевірок (node:test); schema-boot і
+tests/                    13 файлів, 104 перевірки (node:test); schema-boot і
                          schema-migration перевіряють міграцію на старій БД
 android/                  Kotlin-трекер (окремий клієнт API), збірка через Actions
 public/vendor/            Chart.js, MapLibre GL JS, pmtiles — локальні копії (CSP 'self')

@@ -14,6 +14,11 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?Будь ласка, вкажіть ADMIN_PASSWORD у файлі .env}
       # TRUST_PROXY: 0/1/число хопів. Порожнє значення = довіряти лише приватним адресам (cloudflared).
       - TRUST_PROXY=${TRUST_PROXY:-}
+      # Супутникова підкладка (Esri). Порожній токен = публічний хост Esri;
+      # з токеном ідемо на ліцензований basemaps-api (2 млн тайлів/міс безкоштовно).
+      - MAP_SATELLITE=${MAP_SATELLITE:-1}
+      - MAP_SATELLITE_TOKEN=${MAP_SATELLITE_TOKEN:-}
+      - MAP_SATELLITE_TTL=${MAP_SATELLITE_TTL:-86400}
     volumes:
       - ./data:/app/data
       # Офлайн-карта регіону — НЕОБОВ'ЯЗКОВА. Без неї працює онлайн-режим:

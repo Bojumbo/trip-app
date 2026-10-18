@@ -1,6 +1,6 @@
 ﻿﻿/* Service Worker — офлайн-режим */
 
-const CACHE_NAME = 'trip-tracker-v12';
+const CACHE_NAME = 'trip-tracker-v13';
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -49,8 +49,12 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;   // сторонні ресурси не чіпаємо
   if (url.pathname.startsWith('/api/')) return;      // API — завди мережа
 
-  // Офлайн-карта регіону: великий файл із Range-запитами — кешувати не можна
+  // Офлайн-карта регіону: великий файл із Range-запитами — кешувати не можна.
+  // Супутник теж не чіпаємо: у нього свій `Cache-Control: max-age=86400` від
+  // нашого проксі, і тримати його в кеші вічно (до зміни CACHE_NAME) не можна —
+  // це вже виходить за межі, дозволені джерелом знімків.
   if (url.pathname.startsWith('/tiles/')) return;
+  if (url.pathname.startsWith('/satellite/')) return;
   // Partial content (Range) кешуємо лише коли весь відповід уже в кеші
   if (request.headers.has('range')) {
     event.respondWith(

@@ -124,7 +124,7 @@ function setTheme(t, reload = true) {
   }
   // Підкладка маршруту теж має перефарбуватись під нову тему
   if (typeof trackState !== 'undefined' && trackState.map) {
-    recolorBasemap(trackState.map, t === 'dark');
+    recolorBasemap(trackState.map, t === 'dark', isSatelliteActive(trackState.map));
   }
   localStorage.setItem(THEME_KEY, t);
   const btn = $('themeBtn');
@@ -2246,7 +2246,15 @@ const BASEMAP_SKIP = new Set([
   'transportation_name', 'housenumber', 'addresses', 'aerodrome_label'
 ]);
 
-function basemapColors(dark) {
+function basemapColors(dark, satellite) {
+  // Під супутником схема кольорів інша: заливки сховані, а лінії мають бути
+  // світлими — інакше темні дороги зникають на темному лісі.
+  if (satellite) {
+    return {
+      earth: '#141f33', water: '#123a5c', landuse: '#1b2a44', building: '#26374f',
+      road: '#f3f6fa', boundary: '#ffffff', other: '#dbe4f0'
+    };
+  }
   return dark
     ? {
       earth: '#141f33', water: '#123a5c', landuse: '#1b2a44', building: '#26374f',
@@ -2329,12 +2337,14 @@ const BASEMAP_LAYER_ORDER = [
  */
 const LABEL_FONT = ['Noto Sans Regular'];
 
-function basemapLabelSpecs(dark) {
-  const cityText = dark ? '#e8eefa' : '#2b3850';
-  const townText = dark ? '#c6d3e5' : '#455468';
-  const roadText = dark ? '#a9bcd4' : '#5f6f88';
-  const waterText = dark ? '#8fb8dc' : '#4a7fa8';
-  const halo = dark ? '#0b1220' : '#ffffff';
+function basemapLabelSpecs(dark, satellite) {
+  // Під знімком працює лише один варіант: білий текст із темним ореолом.
+  // Темний текст із білою обводкою на фото виглядає як пляма.
+  const cityText = satellite ? '#ffffff' : (dark ? '#e8eefa' : '#2b3850');
+  const townText = satellite ? '#f1f5f9' : (dark ? '#c6d3e5' : '#455468');
+  const roadText = satellite ? '#f8fafc' : (dark ? '#a9bcd4' : '#5f6f88');
+  const waterText = satellite ? '#cfe6f8' : (dark ? '#8fb8dc' : '#4a7fa8');
+  const halo = satellite ? 'rgba(0, 0, 0, 0.8)' : (dark ? '#0b1220' : '#ffffff');
 
   const visible = ['<=', ['get', 'min_zoom'], ['zoom']];
   const label = ['coalesce', ['get', 'name:uk'], ['get', 'name']];
@@ -2486,8 +2496,8 @@ function basemapLayerNames(map) {
   return BASEMAP_LAYER_ORDER;
 }
 
-function addBasemapLayers(map, dark) {
-  const colors = basemapColors(dark);
+function addBasemapLayers(map, dark, satellite) {
+  const colors = basemapColors(dark, satellite);
   basemapLayerNames(map).forEach((name) => {
     const spec = basemapLayerSpec(name, colors);
     if (!spec || map.getLayer(spec.id)) return;
@@ -2497,7 +2507,7 @@ function addBasemapLayers(map, dark) {
   });
 
   // Підписи — останніми, щоб лягли поверх дорог і заливок, але під треком.
-  basemapLabelSpecs(dark).forEach((spec) => {
+  basemapLabelSpecs(dark, satellite).forEach((spec) => {
     if (map.getLayer(spec.id)) return;
     try {
       map.addLayer(spec, 'track-drive');
@@ -2505,9 +2515,9 @@ function addBasemapLayers(map, dark) {
   });
 }
 
-/** Перефарбовує підкладку при зміні теми (карта може бути відкрита). */
-function recolorBasemap(map, dark) {
-  const colors = basemapColors(dark);
+/** Перефарбовує підкладку при зміні теми або режиму (карта може бути відкрита). */
+function recolorBasemap(map, dark, satellite) {
+  const colors = basemapColors(dark, satellite);
   basemapLayerNames(map).forEach((name) => {
     const id = `region-${name}`;
     if (!map.getLayer(id)) return;
@@ -2519,13 +2529,107 @@ function recolorBasemap(map, dark) {
     } catch { /* ignore */ }
   });
 
-  basemapLabelSpecs(dark).forEach((spec) => {
+  basemapLabelSpecs(dark, satellite).forEach((spec) => {
     if (!map.getLayer(spec.id)) return;
     try {
       map.setPaintProperty(spec.id, 'text-color', spec.paint['text-color']);
       map.setPaintProperty(spec.id, 'text-halo-color', spec.paint['text-halo-color']);
     } catch { /* ignore */ }
   });
+}
+
+/** Заливки, які під супутником треба сховати: інакше вони закриють знімок. */
+function basemapFillLayerIds(map) {
+  return basemapLayerNames(map)
+    .filter((name) => BASEMAP_FILL.has(name))
+    .map((name) => `region-${name}`);
+}
+
+/** Чи зараз на карті увімкнено супутник (потрібно при зміні теми). */
+function isSatelliteActive(map) {
+  if (!map || !map.getLayer('region-satellite')) return false;
+  try {
+    return map.getLayoutProperty('region-satellite', 'visibility') === 'visible';
+  } catch { return false; }
+}
+
+/**
+ * Перемикає підкладку між схемою і супутником.
+ *
+ * Під знімком лишаємо дороги, межі й підписи — виходить те, що зазвичай
+ * називають «гібрид». Заливки (земля, вода, будівлі, рослинність) ховаємо:
+ * вони малюються поверх і закривають саму зйомку.
+ */
+function applyBasemapMode(map, mode, dark) {
+  const satellite = mode === 'satellite';
+
+  if (map.getLayer('region-satellite')) {
+    try {
+      map.setLayoutProperty('region-satellite', 'visibility', satellite ? 'visible' : 'none');
+    } catch { /* ignore */ }
+  }
+
+  basemapFillLayerIds(map).forEach((id) => {
+    if (!map.getLayer(id)) return;
+    try {
+      map.setLayoutProperty(id, 'visibility', satellite ? 'none' : 'visible');
+    } catch { /* ignore */ }
+  });
+
+  recolorBasemap(map, dark, satellite);
+}
+
+const BASEMAP_STORAGE_KEY = 'trackBasemap';
+
+function readBasemapMode() {
+  try {
+    return localStorage.getItem(BASEMAP_STORAGE_KEY) === 'satellite' ? 'satellite' : 'scheme';
+  } catch { return 'scheme'; }
+}
+
+function saveBasemapMode(mode) {
+  try { localStorage.setItem(BASEMAP_STORAGE_KEY, mode); } catch { /* приватний режим */ }
+}
+
+/** Перемикач «Схема / Супутник» у куті карти. */
+function basemapToggleControl(map, getDark) {
+  const host = document.createElement('div');
+  host.className = 'track-base';
+
+  const modes = [['scheme', '🗺️ Схема'], ['satellite', '🛰️ Супутник']];
+  let current = readBasemapMode();
+
+  // Атрибуція Esri показується лише тоді, коли справді видно їхній знімок:
+  // тримати чужий копірайт на схемі — це вводити в оману.
+  const credit = document.createElement('div');
+  credit.className = 'track-base-credit';
+  credit.textContent = '© Esri, Maxar, Earthstar Geographics';
+
+  const paint = () => {
+    host.querySelectorAll('button').forEach((b) => {
+      b.classList.toggle('active', b.dataset.base === current);
+    });
+    credit.style.display = current === 'satellite' ? 'block' : 'none';
+  };
+
+  modes.forEach(([mode, label]) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = label;
+    btn.dataset.base = mode;
+    btn.addEventListener('click', () => {
+      if (current === mode) return;
+      current = mode;
+      saveBasemapMode(mode);
+      applyBasemapMode(map, mode, getDark());
+      paint();
+    });
+    host.appendChild(btn);
+  });
+
+  host.appendChild(credit);
+  paint();
+  return host;
 }
 
 /** Плашка поверх карти: коротко пояснює, чому підкладки немає. */
@@ -2567,6 +2671,9 @@ async function renderTrackMap(tripId, segments, records) {
   const tileInfo = await getTilesInfo();
   const hasTiles = !!tileInfo.available;
   const isOffline = tileInfo.mode === 'offline';
+  const satInfo = tileInfo.satellite || null;
+  const satAvailable = Boolean(hasTiles && satInfo && satInfo.enabled);
+  const baseMode = satAvailable ? readBasemapMode() : 'scheme';
   const ml = window.maplibregl;
 
   // Протокол pmtiles:// потрібен лише для локального архіву; онлайн-тайли
@@ -2645,6 +2752,28 @@ async function renderTrackMap(tripId, segments, records) {
     style.sources.region = basemapSource(tileInfo);
     // Гліфи для підписів: локальні PBF (Noto Sans, кирилиця), без CDN — CSP 'self'.
     style.glyphs = '/glyphs/{fontstack}/{range}.pbf';
+
+    // Супутник — растр під вектором. Тайли йдуть через наш проксі, тому CSP
+    // лишається 'self', а IP водія не потрапляє до Esri.
+    // tileSize: 256 — Esri віддає тайли 256 px, а не 512; інакше масштаб зіб'ється.
+    if (satAvailable) {
+      style.sources.satellite = {
+        type: 'raster',
+        tiles: [location.origin + (satInfo.tileUrl || '/satellite/{z}/{x}/{y}.jpg')],
+        tileSize: 256,
+        minzoom: 0,
+        maxzoom: Number(satInfo.maxZoom) || 19
+      };
+      // Шар одразу в стилі, але невидимий: так він гарантовано лежить під
+      // вектором, який додається пізніше перед 'track-drive'.
+      layers.splice(1, 0, {
+        id: 'region-satellite',
+        type: 'raster',
+        source: 'satellite',
+        layout: { visibility: baseMode === 'satellite' ? 'visible' : 'none' },
+        paint: { 'raster-opacity': 1 }
+      });
+    }
   }
 
   const map = new ml.Map({
@@ -2664,9 +2793,22 @@ async function renderTrackMap(tripId, segments, records) {
   fitToFeatures(map, features, 'all');
 
   map.addControl(asMapControl(trackFitControls(map, features)), 'top-left');
-  // Офлайн-підкладка регіону: заливки (земля/вода) і лінії (дороги/межі) під треком
+
+  // Перемикач підкладки — лише якщо супутник справді доступний.
+  if (satAvailable) {
+    const getDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+    map.addControl(asMapControl(basemapToggleControl(map, getDark)), 'bottom-left');
+  }
+
+  // Підкладка регіону: заливки (земля/вода) і лінії (дороги/межі) під треком.
   if (hasTiles) {
-    map.on('load', () => addBasemapLayers(map, isDark));
+    map.on('load', () => {
+      addBasemapLayers(map, isDark, baseMode === 'satellite');
+      // Якщо водій лишив увімкнений супутник — одразу ховаємо заливки.
+      if (satAvailable && baseMode === 'satellite') {
+        applyBasemapMode(map, 'satellite', isDark);
+      }
+    });
   }
 
   // Онлайн-підкладка може не завантажитись (немає виходу в інтернет у контейнера,

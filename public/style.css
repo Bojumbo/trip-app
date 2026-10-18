@@ -952,6 +952,57 @@ tr:hover { background: rgba(37, 99, 235, 0.03); }
   outline-offset: 2px;
 }
 
+/* Перемикач «Схема / Супутник» — правий нижній кут карти */
+.track-base {
+  display: flex;
+  gap: 4px;
+  margin: 0 0 10px 10px;
+  flex-wrap: wrap;
+}
+
+.track-base button {
+  font: inherit;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--text, #1f2937);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.track-base button:hover { filter: brightness(0.96); }
+
+.track-base button.active {
+  background: var(--primary, #2563eb);
+  border-color: var(--primary, #2563eb);
+  color: #fff;
+}
+
+.track-base button:focus-visible {
+  outline: 2px solid var(--primary, #2563eb);
+  outline-offset: 2px;
+}
+
+/* Атрибуція Esri — лише коли справді видно їхній знімок */
+.track-base-credit {
+  flex-basis: 100%;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  color: var(--text-muted, #6b7280);
+  background: rgba(255, 255, 255, 0.78);
+  border-radius: 3px;
+  padding: 1px 4px;
+  width: fit-content;
+}
+
+[data-theme="dark"] .track-base-credit {
+  background: rgba(15, 23, 42, 0.72);
+  color: #cbd5e1;
+}
+
 /* =========================================================
    Пристрої трекера
    ========================================================= */

@@ -72,7 +72,20 @@ const MAP = {
   // Локальний region.pmtiles має приоритет; MAP_LOCAL_TILES=0 змушує онлайн-режим
   preferLocal: process.env.MAP_LOCAL_TILES !== '0',
   // У тестах і з MAP_TILES_NETWORK=0 сервер у мережу не ходить зовсім
-  allowNetwork: process.env.MAP_TILES_NETWORK !== '0' && process.env.NODE_ENV !== 'test'
+  allowNetwork: process.env.MAP_TILES_NETWORK !== '0' && process.env.NODE_ENV !== 'test',
+
+  // --- Супутникова підкладка (Esri World Imagery) -------------------------
+  // Вмикається перемикачем «Схема / Супутник» на карті рейсу.
+  satellite: process.env.MAP_SATELLITE !== '0',
+  // Шаблон тайла. Порядок саме z/y/x — це схема Esri, а не slippy-карт.
+  satelliteUrl: process.env.MAP_SATELLITE_URL || '',
+  // Ключ ArcGIS Location Platform. Порожній — працюємо з публічного хоста
+  // Esri (без ключа); з ключем ідемо на ліцензований basemaps-api.
+  satelliteToken: process.env.MAP_SATELLITE_TOKEN || '',
+  satelliteMaxZoom: Number(process.env.MAP_SATELLITE_MAX_ZOOM || 19),
+  // Esri віддає Cache-Control: max-age=86400, тому більше за добу не тримаємо.
+  satelliteTtlMs: Number(process.env.MAP_SATELLITE_TTL || 86400) * 1000,
+  satelliteConcurrency: Number(process.env.MAP_SATELLITE_CONCURRENCY || 6)
 };
 
 function resolveAdminPassword() {

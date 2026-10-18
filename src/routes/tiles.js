@@ -18,6 +18,7 @@ const path = require('path');
 
 const config = require('../config');
 const tiles = require('../services/map-tiles');
+const satellite = require('../services/map-satellite');
 
 const LOCAL_FILE = path.join(config.ROOT, 'public', 'tiles', 'region.pmtiles');
 
@@ -46,6 +47,7 @@ function localFileInfo() {
 publicRouter.get('/tiles', async (req, res) => {
   const local = localFileInfo();
   const status = await tiles.getStatus();
+  const sat = await satellite.getStatus();
 
   // Офлайн-файл має приоритет: він працює навіть без інтернету.
   const mode = local.available ? 'offline' : (config.MAP.enabled ? 'online' : 'none');
@@ -63,17 +65,25 @@ publicRouter.get('/tiles', async (req, res) => {
     maxZoom: status.maxZoom,
     cachedTiles: status.cachedTiles,
     source: status.source,
-    error: status.error
+    error: status.error,
+    // Супутник іде через наш проксі: CSP лишається 'self', IP водія не світиться.
+    satellite: {
+      enabled: sat.ready,
+      tileUrl: '/satellite/{z}/{x}/{y}.jpg',
+      maxZoom: sat.maxZoom,
+      cachedTiles: sat.cachedTiles,
+      attribution: '© Esri, Maxar, Earthstar Geographics'
+    }
   });
 });
 
 /** Перевіряє z/x/y: цілі числа в межах сітки тайлів. */
-function parseTileParams(params) {
+function parseTileParams(params, maxZoom = config.MAP.maxZoom) {
   const z = Number(params.z);
   const x = Number(params.x);
   const y = Number(params.y);
 
-  if (!Number.isInteger(z) || z < 0 || z > config.MAP.maxZoom) return null;
+  if (!Number.isInteger(z) || z < 0 || z > maxZoom) return null;
   if (!Number.isInteger(x) || !Number.isInteger(y)) return null;
 
   const n = 2 ** z;
@@ -96,6 +106,32 @@ tileRouter.get('/tiles/:z/:x/:y.mvt', async (req, res) => {
   res.set('Content-Type', 'application/x-protobuf');
   res.set('Cache-Control', 'public, max-age=604800, immutable');
   res.send(data);
+});
+
+/**
+ * Супутниковий тайл. Віддаємо через свій домен, тому в CSP не треба
+ * відкривати жодного зовнішнього хоста, а IP водія не потрапляє до Esri.
+ *
+ * Кеш на клієнті — доба: рівно стільки, скільки дозволяє Cache-Control Esri.
+ * Довше тримати не можна, це вже не їхні умови, а наша вигадка.
+ */
+tileRouter.get('/satellite/:z/:x/:y.jpg', async (req, res) => {
+  if (!config.MAP.satellite) {
+    return res.status(404).json({ error: 'Супутникову підкладку вимкнено (MAP_SATELLITE=0)' });
+  }
+
+  const tile = parseTileParams(req.params, config.MAP.satelliteMaxZoom);
+  if (!tile) return res.status(400).json({ error: 'Некоректні координати тайла' });
+
+  const img = await satellite.getTile(tile.z, tile.x, tile.y);
+  if (!img) {
+    res.set('Cache-Control', 'no-store');
+    return res.status(404).end();
+  }
+
+  res.set('Content-Type', img.contentType || 'image/jpeg');
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.send(img.data);
 });
 
 router.post('/tiles/warm', async (req, res) => {
