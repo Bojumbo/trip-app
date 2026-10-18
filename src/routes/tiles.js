@@ -54,12 +54,16 @@ publicRouter.get('/tiles', async (req, res) => {
   res.json({
     available: mode !== 'none',
     mode,
+    // ready — тайли справді можуть приїхати: архів знайдено (або є локальний файл).
+    // Клієнт показує підказку, якщо через кілька секунд ready так і не став true.
+    ready: mode === 'offline' ? true : status.ready,
     sizeMb: local.sizeMb,
     url: local.available ? '/tiles/region.pmtiles' : null,
     tileUrl: '/tiles/{z}/{x}/{y}.mvt',
     maxZoom: status.maxZoom,
     cachedTiles: status.cachedTiles,
-    source: status.source
+    source: status.source,
+    error: status.error
   });
 });
 

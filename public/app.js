@@ -2353,6 +2353,35 @@ function recolorBasemap(map, dark) {
   });
 }
 
+/** Плашка поверх карти: коротко пояснює, чому підкладки немає. */
+function showMapHint(text) {
+  const host = $('trackMap');
+  if (!host || host.querySelector('.track-map-hint')) return;
+  const el = document.createElement('div');
+  el.className = 'track-map-hint';
+  el.textContent = text;
+  host.appendChild(el);
+}
+
+/**
+ * Перевіряє, чи сервер дістався до архіву тайлів.
+ *
+ * На помилки самого MapLibre покладатись не можна: 404 на тайл він ковтає
+ * мовчки, і карта просто лишається порожньою без жодного сигналу. Тому через
+ * кілька секунд після відкриття питаємо /api/tiles ще раз — `ready` означає,
+ * що архів Protomaps знайдено і тайли справді можуть приїхати.
+ */
+async function watchBasemapReady() {
+  await new Promise((resolve) => setTimeout(resolve, 6000));
+  try {
+    const info = await (await fetch('/api/tiles', { credentials: 'same-origin' })).json();
+    if (info && info.mode === 'online' && !info.ready) {
+      showMapHint('Підкладка недоступна: сервер не дістався до архіву тайлів. '
+        + 'Перевірте, чи є в контейнера вихід в інтернет (GET /api/tiles → error).');
+    }
+  } catch { /* мережа зникла — тоді й підказка не потрібна */ }
+}
+
 async function renderTrackMap(tripId, segments, records) {
   const features = buildTrackFeatures(segments, records);
   if (features.length === 0) return;
@@ -2461,6 +2490,13 @@ async function renderTrackMap(tripId, segments, records) {
   // Офлайн-підкладка регіону: заливки (земля/вода) і лінії (дороги/межі) під треком
   if (hasTiles) {
     map.on('load', () => addBasemapLayers(map, isDark));
+  }
+
+  // Онлайн-підкладка може не завантажитись (немає виходу в інтернет у контейнера,
+  // Protomaps недоступний). Порожній прямокутник без пояснення — найгірший варіант,
+  // тому питаємо сервер, чи він узагалі дістався до архіву тайлів, і кажемо прямо.
+  if (hasTiles && !isOffline) {
+    watchBasemapReady();
   }
 
   // Підказки

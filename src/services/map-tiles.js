@@ -304,6 +304,8 @@ async function countCached() {
 async function getStatus() {
   return {
     enabled: MAP.enabled,
+    // ready — архів уже знайдено; online — те саме, але під старим імʼям
+    ready: Boolean(archive),
     online: Boolean(archive),
     source: archiveUrl,
     maxZoom: MAP.maxZoom,
@@ -312,9 +314,19 @@ async function getStatus() {
   };
 }
 
+/**
+ * Штовхає пошук архіву у фоні (викликається на старті сервера). Без цього
+ * перший тайл чекав би 1–3 с на визначення дати збірки Protomaps.
+ */
+function warmUp() {
+  if (!MAP.enabled || !MAP.allowNetwork) return;
+  resolveArchive().catch(() => { /* причина вже в lastError */ });
+}
+
 module.exports = {
   getTile,
   getStatus,
+  warmUp,
   prefetch,
   warmSegments,
   tilesForBbox,

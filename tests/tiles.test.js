@@ -97,10 +97,19 @@ test('/api/tiles віддає режим підкладки без автори�
   assert.equal(info.tileUrl, '/tiles/{z}/{x}/{y}.mvt');
   assert.equal(typeof info.maxZoom, 'number');
   assert.equal(typeof info.cachedTiles, 'number');
+  // ready — чи справді можуть приїхати тайли (клієнт показує підказку, якщо ні)
+  assert.equal(typeof info.ready, 'boolean');
 
   // Офлайн-файл або онлайн-тайлсервер — щось таки має бути доступне.
   assert.equal(info.available, info.mode !== 'none');
-  if (info.mode === 'offline') assert.equal(info.url, '/tiles/region.pmtiles');
+  if (info.mode === 'offline') {
+    assert.equal(info.url, '/tiles/region.pmtiles');
+    assert.equal(info.ready, true);
+  }
+  if (info.mode === 'online') {
+    // У тестах мережа вимкнена (MAP.allowNetwork=false), тому архів не знайдено.
+    assert.equal(info.ready, false);
+  }
 });
 
 test('/tiles/:z/:x/:y.mvt відхиляє некоректні координати', async () => {

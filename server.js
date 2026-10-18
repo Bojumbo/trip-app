@@ -9,6 +9,7 @@ const logger = require('./src/logger');
 const db = require('./src/db');
 const { createApp } = require('./src/app');
 const { cleanupExpiredSessions } = require('./src/lib/sessions');
+const mapTiles = require('./src/services/map-tiles');
 
 let adminPassword;
 try {
@@ -29,6 +30,10 @@ const server = app.listen(config.PORT, '0.0.0.0', () => {
     env: config.IS_PROD ? 'production' : 'development',
     db: config.DB_PATH
   });
+
+  // Підкладка карти: шукаємо архів Protomaps заздалегідь, щоб перший тайл
+  // не чекав на це. Якщо мережі немає — просто лишиться error у /api/tiles.
+  mapTiles.warmUp();
 });
 
 // Прибирання прострочених сесій раз на годину

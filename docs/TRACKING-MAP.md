@@ -126,7 +126,7 @@ curl -s https://trip.bojumbohost.pp.ua/api/tiles   # {"mode":"offline","sizeMb":
 | `public/vendor/maplibre-gl.js`, `maplibre-gl.css` | рендерер карти (~800 КБ, BSD-3) |
 | `public/vendor/pmtiles.js` | протокол `pmtiles://` — лише для офлайн-файлу |
 | `src/services/map-tiles.js` | пошук архіву, `getTile()`, дисковий кеш, `prefetch()`, `warmSegments()` |
-| `src/routes/tiles.js` | `GET /api/tiles`, `GET /tiles/:z/:x/:y.mvt`, `POST /api/tiles/warm` |
+| `src/routes/tiles.js` | `GET /api/tiles` (у т.ч. `ready` — чи дістався сервер до архіву), `GET /tiles/:z/:x/:y.mvt`, `POST /api/tiles/warm` |
 | `src/lib/geo.js` → `decodePolyline()`, `bboxOfPoints()` | прямокутник треку для прогріву кешу |
 | `src/routes/trips.js` → `GET /:id/track` | після відповіді запускає `warmSegments()` у фоні |
 | `public/app.js` → `getTilesInfo()`, `basemapSource()` | вибирає джерело: `pmtiles://` або `/tiles/{z}/{x}/{y}.mvt` |
@@ -142,9 +142,12 @@ curl -s https://trip.bojumbohost.pp.ua/api/tiles   # {"mode":"offline","sizeMb":
    визначення дати збірки Protomaps; далі це кешується на 6 годин.
 3. **Плитки не кешуються сервіс-воркером** — у повністю офлайн-режимі браузера
    без попереднього перегляду підкладки не буде, буде лише трек.
-4. **Підписів вулиць і назв міст немає** — для `symbol`-шарів потрібні гліфи.
+4. **Якщо тайли не приїхали**, карта показує плашку «Підкладка недоступна» —
+   клієнт через 6 с перепитує `/api/tiles` і дивиться на `ready`. Найчастіша причина —
+   в контейнера немає виходу в інтернет; тоді в `/api/tiles` буде `"error"`.
+5. **Підписів вулиць і назв міст немає** — для `symbol`-шарів потрібні гліфи.
    Підкладка — це заливки (земля, вода, забудова) і лінії (дороги, межі, річки).
-5. **Атрибуція.** Дані — © OpenStreetMap, тайли — Protomaps. На карті
+6. **Атрибуція.** Дані — © OpenStreetMap, тайли — Protomaps. На карті
    показано «© OpenStreetMap»; при публічному доступі не прибирайте цей напис
    (вимога ODbL).
 
