@@ -201,3 +201,39 @@ test('/satellite поважає MAP_SATELLITE=0', async () => {
     config.MAP.satellite = original;
   }
 });
+
+test('прибирання кешу видаляє старі тайли й лишає свіжі', async () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const pathMod = require('node:path');
+  const { pruneCache } = require('../src/services/map-satellite');
+
+  const tmp = fs.mkdtempSync(pathMod.join(os.tmpdir(), 'sat-prune-'));
+  const dir = pathMod.join(tmp, 'satellite', '14', '9581');
+  fs.mkdirSync(dir, { recursive: true });
+
+  const oldFile = pathMod.join(dir, '5525.jpg');
+  const newFile = pathMod.join(dir, '5526.jpg');
+  fs.writeFileSync(oldFile, Buffer.alloc(256));
+  fs.writeFileSync(newFile, Buffer.alloc(256));
+
+  // Старий — на 30 діб, новий — свіжий.
+  const monthAgo = new Date(Date.now() - 30 * 86400000);
+  fs.utimesSync(oldFile, monthAgo, monthAgo);
+
+  const originalDir = config.MAP.cacheDir;
+  const originalDays = config.MAP.satelliteCacheDays;
+  try {
+    config.MAP.cacheDir = tmp;
+    config.MAP.satelliteCacheDays = 7;
+    const removed = await pruneCache();
+
+    assert.equal(removed, 1, 'мав бути прибраний рівно один тайл');
+    assert.equal(fs.existsSync(oldFile), false, 'старий тайл мав зникнути');
+    assert.equal(fs.existsSync(newFile), true, 'свіжий тайл має лишитись');
+  } finally {
+    config.MAP.cacheDir = originalDir;
+    config.MAP.satelliteCacheDays = originalDays;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

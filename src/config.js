@@ -85,6 +85,9 @@ const MAP = {
   satelliteMaxZoom: Number(process.env.MAP_SATELLITE_MAX_ZOOM || 19),
   // Esri віддає Cache-Control: max-age=86400, тому більше за добу не тримаємо.
   satelliteTtlMs: Number(process.env.MAP_SATELLITE_TTL || 86400) * 1000,
+  // Скільки діб тайл лежить на диску, перш ніж його прибере прибирання.
+  // Без цього кеш росте безмежно: ~21 КБ на тайл, сотні мегабайт на рік.
+  satelliteCacheDays: Number(process.env.MAP_SATELLITE_CACHE_DAYS || 7),
   satelliteConcurrency: Number(process.env.MAP_SATELLITE_CONCURRENCY || 6)
 };
 

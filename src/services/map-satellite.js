@@ -29,6 +29,8 @@ const { MAP } = config;
 const COUNT_TTL_MS = 60 * 1000;
 /** Таймаут на один тайл: 12 с — водій не має чекати вічність. */
 const FETCH_TIMEOUT_MS = 12000;
+/** Як часто прибираємо старі тайли (не на кожен запит — це обхід диска). */
+const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const inflight = new Map();
 let active = 0;
@@ -126,6 +128,10 @@ async function fetchUpstream(z, x, y) {
 async function getTile(z, x, y) {
   if (!isEnabled()) return null;
 
+  // Прибирання — у фоні й не частіше ніж раз на 6 годин, тож на швидкість
+  // відповіді не впливає.
+  pruneCache();
+
   const file = tilePath(z, x, y);
   const cached = await readCached(file);
 
@@ -164,6 +170,7 @@ async function getTile(z, x, y) {
 
 async function countCached() {
   if (countedAt && Date.now() - countedAt < COUNT_TTL_MS) return cachedCount;
+
   let count = 0;
   try {
     const files = await fsp.readdir(path.join(MAP.cacheDir, 'satellite'), { recursive: true });
@@ -172,6 +179,68 @@ async function countCached() {
   cachedCount = count;
   countedAt = Date.now();
   return count;
+}
+
+/**
+ * Прибирає тайли, старші за `MAP.satelliteCacheDays`.
+ *
+ * Без цього кеш росте безмежно: один тайл — близько 21 КБ, а активний водій
+ * лишає сотні тайлів на день. Через рік це гігабайти на диску VPS, і про них
+ * ніхто не дізнається, поки місце не скінчиться.
+ *
+ * Ходить по диску не частіше, ніж раз на 6 годин, і ніколи не кидає назовні.
+ */
+let prunedAt = 0;
+let pruning = null;
+
+function pruneCache() {
+  // Перевіряємо саме вимикач функції, а не доступ до мережі: прибирання — це
+  // гігієна диска, і воно має працювати навіть коли сервер офлайн.
+  if (!MAP.satellite) return Promise.resolve(0);
+  if (Date.now() - prunedAt < PRUNE_INTERVAL_MS) return Promise.resolve(0);
+  if (pruning) return pruning;
+
+  prunedAt = Date.now();
+  pruning = (async () => {
+    const dir = path.join(MAP.cacheDir, 'satellite');
+    const maxAge = Math.max(1, MAP.satelliteCacheDays) * 86400000;
+    const cutoff = Date.now() - maxAge;
+    let removed = 0;
+
+    let entries;
+    try {
+      entries = await fsp.readdir(dir, { recursive: true });
+    } catch {
+      return 0; // кешу немає — прибирати нічого
+    }
+
+    for (const entry of entries) {
+      const rel = String(entry);
+      if (!rel.endsWith('.jpg')) continue;
+      const file = path.join(dir, rel);
+      try {
+        const stat = await fsp.stat(file);
+        if (stat.mtimeMs < cutoff) {
+          await fsp.unlink(file);
+          removed++;
+        }
+      } catch { /* файл зник між readdir і stat — не біда */ }
+    }
+
+    if (removed) {
+      // Підрахунок у /api/tiles має показати нове число, а не старе з кешу.
+      countedAt = 0;
+      logger.info('satellite_cache_pruned', { removed, keepDays: MAP.satelliteCacheDays });
+    }
+    return removed;
+  })()
+    .catch((e) => {
+      logger.warn('satellite_prune_failed', { error: e.message });
+      return 0;
+    })
+    .finally(() => { pruning = null; });
+
+  return pruning;
 }
 
 async function getStatus() {
@@ -183,8 +252,9 @@ async function getStatus() {
       try { return new URL(upstreamTemplate().replace('{z}', '0').replace('{x}', '0').replace('{y}', '0')).host; } catch { return null; }
     })(),
     maxZoom: MAP.satelliteMaxZoom,
+    keepDays: MAP.satelliteCacheDays,
     cachedTiles: await countCached()
   };
 }
 
-module.exports = { getTile, getStatus, buildUpstreamUrl, isEnabled };
+module.exports = { getTile, getStatus, buildUpstreamUrl, isEnabled, pruneCache };
