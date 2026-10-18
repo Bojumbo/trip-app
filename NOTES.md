@@ -55,6 +55,21 @@
 - Debug-підпис генерується локально (`~/.android/debug.keystore`) і **не збігається** з підписом
   CI: APK з різних джерел не оновлюють один одного — треба видалити застосунок.
 
+## Карта (MapLibre + PMTiles)
+
+- **`vectorLayerIds()` у MapLibre НЕ існує** — це API Mapbox GL JS. Код, що перебирав
+  шари підкладки через нього, тихо падав у `try/catch`, і підкладка не додавалась зовсім
+  (маршрут малювався, вулиць не було). Список source-layer беріть із фіксованого переліку
+  (`BASEMAP_LAYER_ORDER`) — шар із неіснуючим source-layer просто нічого не малює.
+- `region.pmtiles` для всієї України (z12) — **324 МБ**. Генерація без Docker:
+  `pmtiles extract <protomaps-планета> out.pmtiles --region=ukraine.geojson --maxzoom=12`
+  (бінарник `pmtiles.exe` лежить у `.workbuddy-ai/build-tools/`, не в git). Деталі —
+  `docs/TRACKING-MAP.md`.
+- Два місця для файлу: `tiles/region.pmtiles` — том Docker (`./tiles:/app/public/tiles`),
+  `public/tiles/region.pmtiles` — локальний запуск. Обидва в `.gitignore`.
+- `/api/tiles` читає файл на кожен запит — перезапуск сервера після копіювання не потрібен.
+- Тайли віддаються через `express.static` з Range — тому SW їх і не перехоплює.
+
 ## Залежності від середовища
 
 - `better-sqlite3` **вмикає `foreign_keys` за замовчуванням** (v7+), тож `CASCADE`
@@ -89,3 +104,5 @@
 | 2026-10-17 | Перед пушем у прод: локально `npm test` + відкрити legacy-файл БД |
 | 2026-10-18 | Трекер: у `worker` (один потік) не можна тримати блокуючий цикл — він займає його назавжди; цикли → окремий потік |
 | 2026-10-18 | Kotlin: виклик усередині `apply { }` іде на ресивер; після блоку потрібен явний `obj.put(...)`, інакше `Unresolved reference` (ловить лише компілятор) |
+| 2026-10-18 | Не покладатись на API Mapbox GL у MapLibre (`vectorLayerIds`) — перевіряти, що шар реально додався (`map.getLayer(id)`) |
+| 2026-10-18 | Порожній `catch` навколо `addLayer` ховає цілу відсутню підкладку — логувати хоч `console.warn` |

@@ -122,6 +122,10 @@ function setTheme(t, reload = true) {
       trackState.map.setPaintProperty('bg', 'background-color', t === 'dark' ? '#111a2b' : '#e9eef5');
     } catch { /* ignore */ }
   }
+  // Підкладка маршруту теж має перефарбуватись під нову тему
+  if (typeof trackState !== 'undefined' && trackState.map) {
+    recolorBasemap(trackState.map, t === 'dark');
+  }
   localStorage.setItem(THEME_KEY, t);
   const btn = $('themeBtn');
   if (btn) btn.textContent = t === 'dark' ? '☀️' : '🌙';
@@ -2206,6 +2210,118 @@ function trackFitControls(map, features) {
   return host;
 }
 
+/**
+ * Підкладка офлайн-карти.
+ *
+ * Схема тайлів може бути різною (OpenMapTiles від planetiler або Protomaps),
+ * тому тип шару визначаємо за назвою source-layer: полігони заливаємо,
+ * решту малюємо лініями, підписи/точки пропускаємо (для них потрібні гліфи).
+ */
+const BASEMAP_FILL = new Set([
+  'earth', 'water', 'landuse', 'landcover', 'natural', 'park', 'glacier', 'ice', 'building', 'buildings'
+]);
+const BASEMAP_SKIP = new Set([
+  'place', 'places', 'poi', 'pois', 'physical_point', 'mountain_peak', 'water_name',
+  'transportation_name', 'housenumber', 'addresses', 'aerodrome_label'
+]);
+
+function basemapColors(dark) {
+  return dark
+    ? {
+      earth: '#111a2b', water: '#0a1c2e', landuse: '#16233a', building: '#1b2a3d',
+      road: '#3b4d68', boundary: '#48597a', other: '#26364c'
+    }
+    : {
+      earth: '#eef2f7', water: '#cfe1f2', landuse: '#e6efe4', building: '#e2e8f0',
+      road: '#d9e1ea', boundary: '#c3cede', other: '#cfd8e4'
+    };
+}
+
+function basemapLayerSpec(name, colors) {
+  if (BASEMAP_SKIP.has(name)) return null;
+
+  if (BASEMAP_FILL.has(name)) {
+    const color = name === 'water' ? colors.water
+      : name === 'earth' ? colors.earth
+        : (name === 'building' || name === 'buildings') ? colors.building
+          : colors.landuse;
+    return {
+      id: `region-${name}`,
+      type: 'fill',
+      source: 'region',
+      'source-layer': name,
+      paint: { 'fill-color': color, 'fill-opacity': name === 'earth' ? 1 : 0.85 }
+    };
+  }
+
+  const isBoundary = name.startsWith('boundary');
+  const isRoad = name === 'roads' || name === 'transportation';
+
+  const paint = {
+    'line-color': isBoundary ? colors.boundary : (isRoad ? colors.road : colors.other),
+    'line-width': isRoad
+      ? ['interpolate', ['linear'], ['zoom'], 6, 0.5, 10, 0.9, 13, 1.6, 16, 3]
+      : ['interpolate', ['linear'], ['zoom'], 6, 0.4, 12, 0.8, 16, 1.4]
+  };
+  if (isBoundary) paint['line-dasharray'] = [2, 2];
+
+  return {
+    id: `region-${name}`,
+    type: 'line',
+    source: 'region',
+    'source-layer': name,
+    layout: { 'line-join': 'round', 'line-cap': 'round' },
+    paint
+  };
+}
+
+/**
+ * Відомий порядок шарів підкладки (знизу вгору) для схем OpenMapTiles
+ * і Protomaps. Використовується, коли MapLibre не віддає список source-layer:
+ * шар із неіснуючим source-layer просто нічого не малює.
+ */
+const BASEMAP_LAYER_ORDER = [
+  'earth', 'landcover', 'landuse', 'park', 'water', 'waterway',
+  'boundary', 'boundaries', 'transportation', 'roads', 'building', 'buildings'
+];
+
+/** Порядок шарів: спершу заливки, потім лінії, трек — завжди зверху. */
+function basemapLayerNames(map) {
+  const src = map.getSource('region');
+  const fromSource = src && typeof src.vectorLayerIds === 'function' ? src.vectorLayerIds() : [];
+  if (fromSource && fromSource.length) {
+    const rank = (n) => (n === 'earth' ? 0 : (BASEMAP_FILL.has(n) ? 1 : 2));
+    return [...fromSource].sort((a, b) => rank(a) - rank(b));
+  }
+  return BASEMAP_LAYER_ORDER;
+}
+
+function addBasemapLayers(map, dark) {
+  const colors = basemapColors(dark);
+  basemapLayerNames(map).forEach((name) => {
+    const spec = basemapLayerSpec(name, colors);
+    if (!spec || map.getLayer(spec.id)) return;
+    try {
+      map.addLayer(spec, 'track-drive');
+    } catch { /* шар не підтримується — пропускаємо */ }
+  });
+}
+
+/** Перефарбовує підкладку при зміні теми (карта може бути відкрита). */
+function recolorBasemap(map, dark) {
+  const colors = basemapColors(dark);
+  basemapLayerNames(map).forEach((name) => {
+    const id = `region-${name}`;
+    if (!map.getLayer(id)) return;
+    const spec = basemapLayerSpec(name, colors);
+    if (!spec) return;
+    try {
+      if (spec.type === 'fill') map.setPaintProperty(id, 'fill-color', spec.paint['fill-color']);
+      else map.setPaintProperty(id, 'line-color', spec.paint['line-color']);
+    } catch { /* ignore */ }
+  });
+}
+
 async function renderTrackMap(tripId, segments, records) {
   const features = buildTrackFeatures(segments, records);
   if (features.length === 0) return;
@@ -2224,9 +2340,8 @@ async function renderTrackMap(tripId, segments, records) {
   }
 
   // Фон під треком: у темній темі — глибокий сірий, інакше світлий.
-  const mapBg = document.documentElement.getAttribute('data-theme') === 'dark'
-    ? '#111a2b'
-    : '#e9eef5';
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const mapBg = isDark ? '#111a2b' : '#e9eef5';
 
   const layers = [{
     id: 'bg',
@@ -2305,28 +2420,9 @@ async function renderTrackMap(tripId, segments, records) {
   fitToFeatures(map, features, 'all');
 
   map.addControl(asMapControl(trackFitControls(map, features)), 'top-left');
-  // Офлайн-підкладка регіону: додаємо її шарами під трек
+  // Офлайн-підкладка регіону: заливки (земля/вода) і лінії (дороги/межі) під треком
   if (hasTiles) {
-    map.on('load', () => {
-      try {
-        const src = map.getSource('region');
-        const ids = src && src.vectorLayerIds ? src.vectorLayerIds() : [];
-        ids.forEach((name, i) => {
-          const layerId = `region-${name}`;
-          if (map.getLayer(layerId)) return;
-          map.addLayer({
-            id: layerId,
-            type: 'line',
-            source: 'region',
-            'source-layer': name,
-            paint: {
-              'line-color': '#c7d2e0',
-              'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 15, 1.6]
-            }
-          }, 'track-drive');
-        });
-      } catch { /* без підкладки — лише трек */ }
-    });
+    map.on('load', () => addBasemapLayers(map, isDark));
   }
 
   // Підказки

@@ -1,6 +1,6 @@
 {
   "name": "trip-tracker",
-  "version": "1.3.3",
+  "version": "1.3.4",
   "description": "Система обліку рейсів та робочих змін",
   "main": "server.js",
   "private": true,

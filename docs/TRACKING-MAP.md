@@ -15,48 +15,64 @@
 
 ## Як згенерувати `region.pmtiles`
 
-Потрібен один раз, локально, на комп'ютері з Docker (або Node 20+).
-Результат — файл 20–300 МБ залежно від розміру регіону; в git він **не комітиться**
-(`public/tiles/.gitignore` + `tiles/` у корені). У продакшені він лежить на хості
-і монтується томом `./tiles:/app/public/tiles` (див. `docker-compose.yml`) —
+Потрібен один раз, локально. Результат — файл 20–350 МБ залежно від регіону; в git він
+**не комітиться** (`public/tiles/.gitignore` + `tiles/` у корені). У продакшені він лежить
+на хості і монтується томом `./tiles:/app/public/tiles` (див. `docker-compose.yml`) —
 інакше `Pull and redeploy` його зітре.
 
-### 1. Отримати дані OpenStreetMap
+### Варіант 1 — вирізати з готового Protomaps (без Docker, ~10 хв)
 
-Варіант А — [Geofabrik](https://download.geofabrik.de/europe/ukraine.html):
-качаєте регіон (наприклад `kyiv-oblast-latest.osm.pbf`, ~50 МБ).
+Найшвидший шлях: у Protomaps є щоденні збірки всієї планети у PMTiles, з яких
+можна витягти лише свій регіон — по HTTP Range, без завантаження 139 ГБ.
 
-Варіант Б — Overpass API, щоб вирізати тільки потрібний bounding box:
 ```bash
-curl -G https://overpass-api.de/api/interpreter \
-  --data-urlencode 'data=[out:xml][bbox:50.2,30.2,50.6,30.8];(way;rel;);out meta;' \
-  -o region.osm
+# 1. Бінарник pmtiles CLI (Windows/Linux/macOS)
+curl -L -o pmtiles.zip \
+  https://github.com/protomaps/go-pmtiles/releases/latest/download/go-pmtiles_1.31.2_Windows_x86_64.zip
+unzip pmtiles.zip
+
+# 2. Полігон регіону (можна bbox: --bbox=minlon,minlat,maxlon,maxlat)
+#    Тут — вся Україна з Natural Earth (14 МБ, витягуємо один feature)
+curl -L -o countries.geojson \
+  https://raw.githubusercontent.com/datasets/geo-countries/master/data/countries.geojson
+
+# 3. Оцінка розміру без завантаження
+pmtiles extract https://build.protomaps.com/20261017.pmtiles ua.pmtiles \
+  --region=ukraine.geojson --maxzoom=12 --dry-run
+
+# 4. Сама екстракція
+pmtiles extract https://build.protomaps.com/20261017.pmtiles ua.pmtiles \
+  --region=ukraine.geojson --maxzoom=12 --download-threads=16
 ```
 
-### 2. Побудувати PMTiles (planetiler)
+Перевірені цифри для всієї України (18.10.2026): **19 707 тайлів, 324 МБ, 6.5 хв**.
+Дата у URL — це дата збірки (`build.protomaps.com/YYYYMMDD.pmtiles`), беріть свіжу.
+`--maxzoom=12` дає вулиці на рівні міста; 13+ множить розмір учетверо, а трек
+однаково малюється поверх.
+
+### Варіант 2 — planetiler + OpenMapTiles (потрібен Docker)
 
 ```bash
+curl -O https://download.geofabrik.de/europe/ukraine-latest.osm.pbf   # 880 МБ
 docker run --rm -v "$PWD:/data" \
   ghcr.io/onthego/planetiler-openmaptiles:latest \
-  --input=/data/kyiv-oblast-latest.osm.pbf \
+  --input=/data/ukraine-latest.osm.pbf \
   --output=/data/region.pmtiles \
-  --minzoom=5 --maxzoom=14 --bounds=30.2,50.2,30.8,50.6
+  --minzoom=5 --maxzoom=12 --bounds=22.1,44.3,40.3,52.5
 ```
 
-Параметри, які важливі:
-- `--maxzoom=14` — для маршруту достатньо; збільшення до 15–16 помножує розмір на 2–4.
-- `--bounds=...` — обрізає все зайве. Тримайте вузький прямокутник навколо робочого регіону.
-- `--minzoom=5` — дає загальний огляд на віддаленні.
+Довше (десятки хвилин) і потребує 4–8 ГБ RAM, зате схема OpenMapTiles.
+Фронтенд розуміє обидві схеми — див. «Як це працює в коді».
 
-### 3. Покласти файл і перевірити
+### Покласти файл і перевірити
 
 ```bash
 mkdir -p tiles
-cp region.pmtiles tiles/          # на хості; у Docker — том ./tiles
+cp ua.pmtiles tiles/region.pmtiles     # на хості; у Docker — том ./tiles
 curl -s https://trip.bojumbohost.pp.ua/api/tiles   # {"available":true,"sizeMb":...}
 ```
 
-Для локального запуску без Docker достатньо `cp region.pmtiles public/tiles/`.
+Для локального запуску без Docker: `cp tiles/region.pmtiles public/tiles/`.
 
 Після цього маршрут у веб-застосунку відображатиметься на справжній карті.
 
@@ -67,7 +83,9 @@ curl -s https://trip.bojumbohost.pp.ua/api/tiles   # {"available":true,"sizeMb":
 | `public/vendor/maplibre-gl.js`, `maplibre-gl.css` | рендерер карти (~800 КБ,BSD-3) |
 | `public/vendor/pmtiles.js` | протокол `pmtiles://` — читає архів по HTTP Range |
 | `public/app.js` → `openTrackModal()` | ліниве підключення бібліотек, запит `/api/trips/:id/track` |
-| `public/app.js` → `renderTrackMap()` | декодує полілінії, будує шари, додає підкладку |
+| `public/app.js` → `renderTrackMap()` | декодує полілінії, будує шари треку, додає підкладку |
+| `public/app.js` → `addBasemapLayers()` | малює підкладку: полігони — заливкою, лінії — лініями |
+| `public/app.js` → `basemapLayerSpec()` | визначає тип шару за назвою source-layer (OMT і Protomaps) |
 | `src/routes/meta.js` → `GET /api/tiles` | чи є файл (реєструється до `authMiddleware`) |
 | `public/sw.js` | `/tiles/*` навмисно **не кешує** — Range-запити ламають кеш SW |
 
@@ -81,8 +99,10 @@ curl -s https://trip.bojumbohost.pp.ua/api/tiles   # {"available":true,"sizeMb":
    `Pull and redeploy` підкладки не буде — трек залишиться.
 3. **Розмір образу.** 100 МБ плиток = +100 МБ образу. Якщо це забагато —
    зменшіть `--bounds` або `--maxzoom`.
-4. **Підписи вулиць відсутні** — шар `region-*` малює лише лінії, без `symbol`-шару
-   (йому потрібні гліфи, яких у PMTiles немає). Це ціна компактності архіву.
+4. **Підписів вулиць і назв міст немає** — для `symbol`-шарів потрібні гліфи, яких
+   в архіві немає. Тому підкладка — це заливки (земля, вода, забудова) і лінії
+   (дороги, межі). Назви населених пунктів можна додати пізніше, поклавши поруч
+   `glyphs`-каталог і додавши `symbol`-шар.
 
 ## Альтернативи, які відкинули
 
